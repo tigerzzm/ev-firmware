@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EV 2026 — Wiring Diagram</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin:0; background:#f6f7f9; color:#111827;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1280px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:22px; margin:8px 4px 2px; }
+  p.sub { margin:0 4px 14px; color:#4b5563; font-size:14px; }
+  svg { width:100%; height:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px;
+        box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .note { margin:16px 4px 0; font-size:13px; color:#374151; line-height:1.5; }
+  .warn { background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:10px 12px; color:#991b1b; }
+  code { background:#eef2ff; padding:1px 5px; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>EV 2026 — Wiring Diagram (Raspberry Pi Pico 2)</h1>
+  <p class="sub">Signal connections are drawn; power &amp; ground follow the power tree in <code>WIRING_GUIDE.md §1</code>. Coloured pills show each block's supply. Physical Pico pin numbers in parentheses.</p>
+  <svg viewBox="0 0 1240 1010" role="img" aria-label="EV wiring diagram">
+    <defs>
+      <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 z" fill="#6b7280"/>
+      </marker>
+      <style>
+        .box{fill:#fff;stroke:#374151;stroke-width:1.5;rx:8;}
+        .lbl{font:600 13px sans-serif;fill:#111827;}
+        .sub{font:11px sans-serif;fill:#6b7280;}
+        .pin{font:11px monospace;fill:#111827;}
+        .sig{stroke:#2563eb;stroke-width:2;fill:none;}       /* signal / I2C / input */
+        .pwm{stroke:#16a34a;stroke-width:2;fill:none;}       /* PWM / servo */
+        .mot{stroke:#ea580c;stroke-width:3.5;fill:none;}     /* motor high current */
+        .conlbl{font:10px monospace;fill:#374151;}
+      </style>
+    </defs>
+
+    <!-- ===== Legend ===== -->
+    <g transform="translate(24,16)">
+      <rect x="0" y="0" width="1192" height="34" rx="8" fill="#f9fafb" stroke="#e5e7eb"/>
+      <line x1="16" y1="17" x2="44" y2="17" class="sig"/><text x="50" y="21" class="sub">signal / I²C / input</text>
+      <line x1="210" y1="17" x2="238" y2="17" class="pwm"/><text x="244" y="21" class="sub">PWM / servo</text>
+      <line x1="360" y1="17" x2="388" y2="17" class="mot"/><text x="394" y="21" class="sub">motor (high current)</text>
+      <rect x="560" y="9" width="16" height="16" rx="3" fill="#dc2626"/><text x="582" y="21" class="sub">+V power</text>
+      <rect x="660" y="9" width="16" height="16" rx="3" fill="#111827"/><text x="682" y="21" class="sub">GND (common)</text>
+      <text x="820" y="21" class="sub">Pills: supply per block &nbsp;•&nbsp; see WIRING_GUIDE.md for power routing</text>
+    </g>
+
+    <!-- ===== Power tree band ===== -->
+    <g transform="translate(24,64)">
+      <rect x="0" y="0" width="1192" height="86" rx="8" fill="#fff7ed" stroke="#fed7aa"/>
+      <text x="12" y="18" class="lbl">Power tree</text>
+      <!-- battery -->
+      <rect x="14" y="30" width="120" height="42" class="box"/>
+      <text x="24" y="48" class="lbl">8×AA pack</text><text x="24" y="63" class="sub">~9.6 V</text>
+      <!-- to buck -->
+      <line x1="134" y1="45" x2="196" y2="45" class="sig" marker-end="url(#arrow)"/>
+      <rect x="198" y="30" width="120" height="42" class="box"/>
+      <text x="208" y="48" class="lbl">Buck → 5 V</text><text x="208" y="63" class="sub">≥2 A</text>
+      <!-- battery to motor -->
+      <line x1="74" y1="72" x2="74" y2="84" class="mot"/>
+      <text x="84" y="84" class="conlbl">B+/B− → BTS7960 (motor, 12 AWG)</text>
+      <!-- 5v fanout -->
+      <line x1="318" y1="45" x2="360" y2="45" class="mot" style="stroke:#dc2626"/>
+      <text x="368" y="41" class="conlbl">5 V → Servo V+ , BTS7960 VCC , Pico VSYS (pin 39)</text>
+      <!-- 3v3 -->
+      <rect x="820" y="30" width="150" height="42" class="box"/>
+      <text x="830" y="48" class="lbl">Pico 3V3 (pin 36)</text><text x="830" y="63" class="sub">→ BNO085, LCD, dial</text>
+      <line x1="970" y1="51" x2="1010" y2="51" class="sig" style="stroke:#dc2626" marker-end="url(#arrow)"/>
+      <rect x="1012" y="30" width="166" height="42" class="box"/>
+      <text x="1022" y="48" class="lbl">GND — common</text><text x="1022" y="63" class="sub">tie ALL grounds</text>
+    </g>
+
+    <!-- ===== Pico center block ===== -->
+    <g>
+      <rect x="500" y="300" width="240" height="440" class="box" fill="#f8fafc"/>
+      <text x="620" y="326" text-anchor="middle" class="lbl">Raspberry Pi Pico 2</text>
+      <text x="620" y="342" text-anchor="middle" class="sub">RP2350 · 3.3 V logic (NOT 5 V-tolerant)</text>
+
+      <!-- left pins -->
+      <g class="pin" text-anchor="start">
+        <text x="512" y="378">GP4  (6)  SDA</text>
+        <text x="512" y="410">GP5  (7)  SCL</text>
+        <text x="512" y="442">GP6  (9)  INT</text>
+        <text x="512" y="474">GP7  (10) RST</text>
+        <text x="512" y="506">GP10 (14) ENC A</text>
+        <text x="512" y="538">GP11 (15) ENC B</text>
+        <text x="512" y="570">GP20 (26) CLK</text>
+        <text x="512" y="602">GP21 (27) DT</text>
+        <text x="512" y="634">GP22 (29) SW</text>
+        <text x="512" y="666">GP14 (19) START</text>
+        <text x="512" y="698">GP19 (25) SET</text>
+      </g>
+      <!-- right pins -->
+      <g class="pin" text-anchor="end">
+        <text x="728" y="382">SERVO GP15 (20)</text>
+        <text x="728" y="418">RPWM  GP16 (21)</text>
+        <text x="728" y="454">LPWM  GP17 (22)</text>
+        <text x="728" y="490">EN    GP18 (24)</text>
+        <text x="728" y="560">3V3      (36)</text>
+        <text x="728" y="596">VSYS     (39)</text>
+        <text x="728" y="632">GND  (3/8/…)</text>
+      </g>
+    </g>
+
+    <!-- ===== Left peripherals ===== -->
+    <!-- BNO085 -->
+    <g><rect x="70" y="330" width="150" height="58" class="box"/>
+      <text x="80" y="352" class="lbl">BNO085 IMU</text>
+      <text x="80" y="368" class="sub">I²C 0x4A · heading</text>
+      <rect x="80" y="372" width="34" height="14" rx="7" fill="#dc2626"/><text x="86" y="383" style="font:9px sans-serif;fill:#fff">3V3</text>
+    </g>
+    <path class="sig" d="M220,360 H470 V372 H500"/>
+    <text x="300" y="356" class="conlbl">SDA GP4·p6 / SCL GP5·p7 (shared bus)</text>
+
+    <!-- LCD -->
+    <g><rect x="70" y="430" width="150" height="58" class="box"/>
+      <text x="80" y="452" class="lbl">16×2 LCD</text>
+      <text x="80" y="468" class="sub">PCF8574 0x27</text>
+      <rect x="80" y="472" width="34" height="14" rx="7" fill="#dc2626"/><text x="86" y="483" style="font:9px sans-serif;fill:#fff">3V3</text>
+      <text x="120" y="483" class="sub">(or 5 V via shifter)</text>
+    </g>
+    <path class="sig" d="M220,459 H460 V404 H500"/>
+    <text x="300" y="455" class="conlbl">SDA/SCL shared with IMU</text>
+
+    <!-- Encoder -->
+    <g><rect x="70" y="500" width="150" height="60" class="box"/>
+      <text x="80" y="522" class="lbl">Front encoder</text>
+      <text x="80" y="538" class="sub">free roller · distance</text>
+      <rect x="80" y="542" width="66" height="14" rx="7" fill="#111827"/><text x="86" y="553" style="font:9px sans-serif;fill:#fff">3V3 or shift</text>
+    </g>
+    <path class="sig" d="M220,522 H460 V500 H500"/>
+    <path class="sig" d="M220,540 H450 V538 H500"/>
+    <text x="300" y="516" class="conlbl">A GP10·p14 / B GP11·p15  (level-shift if 5 V!)</text>
+
+    <!-- Dial -->
+    <g><rect x="70" y="572" width="150" height="58" class="box"/>
+      <text x="80" y="594" class="lbl">Dial (KY-040)</text>
+      <text x="80" y="610" class="sub">value entry</text>
+      <rect x="80" y="614" width="34" height="14" rx="7" fill="#dc2626"/><text x="86" y="625" style="font:9px sans-serif;fill:#fff">3V3</text>
+    </g>
+    <path class="sig" d="M220,590 H452 V570 H500"/>
+    <path class="sig" d="M220,604 H446 V602 H500"/>
+    <text x="300" y="586" class="conlbl">CLK GP20·p26 / DT GP21·p27 / SW GP22·p29</text>
+
+    <!-- Buttons -->
+    <g><rect x="70" y="656" width="150" height="58" class="box"/>
+      <text x="80" y="678" class="lbl">Buttons</text>
+      <text x="80" y="694" class="sub">START (pencil) · SET</text>
+      <rect x="80" y="698" width="34" height="14" rx="7" fill="#111827"/><text x="86" y="709" style="font:9px sans-serif;fill:#fff">GND</text>
+    </g>
+    <path class="sig" d="M220,678 H470 V666 H500"/>
+    <path class="sig" d="M220,700 H484 V698 H500"/>
+    <text x="300" y="672" class="conlbl">START GP14·p19 / SET GP19·p25  (to GND, active-low)</text>
+
+    <!-- ===== Right peripherals ===== -->
+    <!-- Servo -->
+    <g><rect x="960" y="345" width="150" height="58" class="box"/>
+      <text x="970" y="367" class="lbl">Steering servo</text>
+      <text x="970" y="383" class="sub">MG90S-class</text>
+      <rect x="970" y="387" width="30" height="14" rx="7" fill="#dc2626"/><text x="975" y="398" style="font:9px sans-serif;fill:#fff">5V</text>
+    </g>
+    <path class="pwm" d="M740,382 H900 V374 H960"/>
+    <text x="770" y="370" class="conlbl">SIG GP15·p20</text>
+
+    <!-- BTS7960 -->
+    <g><rect x="960" y="425" width="150" height="86" class="box"/>
+      <text x="970" y="447" class="lbl">BTS7960</text>
+      <text x="970" y="463" class="sub">motor driver</text>
+      <rect x="970" y="467" width="30" height="14" rx="7" fill="#dc2626"/><text x="975" y="478" style="font:9px sans-serif;fill:#fff">5V</text>
+      <text x="1006" y="478" class="sub">VCC logic</text>
+      <text x="970" y="500" class="sub">B+/B− ← battery</text>
+    </g>
+    <path class="pwm" d="M740,418 H905 V440 H960"/>
+    <path class="pwm" d="M740,454 H960"/>
+    <path class="pwm" d="M740,490 H915 V478 H960"/>
+    <text x="770" y="410" class="conlbl">RPWM GP16·p21 / LPWM GP17·p22 / EN GP18·p24</text>
+
+    <!-- Motor -->
+    <g><rect x="960" y="560" width="150" height="52" class="box"/>
+      <text x="970" y="582" class="lbl">550 motor</text>
+      <text x="970" y="598" class="sub">rear drive</text>
+    </g>
+    <path class="mot" d="M1035,511 V560"/>
+    <text x="1044" y="540" class="conlbl">M+/M−</text>
+  </svg>
+
+  <p class="note warn"><strong>Before power:</strong> run the pre-power checklist in <code>WIRING_GUIDE.md §9</code>. The Pico 2 is <strong>not 5 V-tolerant</strong> — a 5 V encoder or a 5 V-powered LCD must go through a level shifter, never straight to a GPIO.</p>
+  <p class="note">Full pin-by-pin tables, the power tree, decoupling, and the level-shifter details are in <code>WIRING_GUIDE.md</code>. This picture is the map; that doc is the territory.</p>
+</div>
+</body>
+</html>

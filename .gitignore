@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Build output
+build/
+cmake-build-*/
+*.uf2
+*.elf
+*.bin
+*.hex
+*.map
+*.dis
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*~
