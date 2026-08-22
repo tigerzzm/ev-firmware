@@ -34,9 +34,12 @@ closed-loop stop). A **BNO085 IMU** gives mag-free heading (Game Rotation Vector
   `wiring_diagram.html`, `VEHICLE_BUILD.md`, `BUILD_AND_FLASH.md`, `BRINGUP_AND_TUNING.md`.
 - `docs/design/` — the design record (rules, scoring, design review, the
   active-tracking proposal, the detailed design, the session log). **Read these for
-  the "why."**
+  the "why."** Includes **`EV_Steering_Linkage_Design.md`** — measured CAD geometry,
+  the drag-link vs coaxial decision, the ratio model, and firmware constraints that
+  `config.h` does not yet reflect. **Read it before touching `steer.*` or `path.*`.**
 - `docs/hardware/` — `CAD_SUMMARY.md` (mechanical parts, dimensions, the steering
-  mechanism + slack analysis) and rendered illustrations. The real STLs are in
+  mechanism + slack analysis) and rendered illustrations. ⚠️ Three of its steering
+  claims are superseded — see §11 of `EV_Steering_Linkage_Design.md`. The real STLs are in
   `~/Documents/EV_2026/CAD/` (binary; open the parent EV_2026 folder / use a multi-root
   workspace to see them alongside this repo).
 - `host_check/` — offline compile + math test harness. Run `bash host_check/run.sh`.
@@ -58,6 +61,10 @@ Set these in `src/config.h` / `src/speed.cpp` after bench measurement (see
 that's the intended tripwire.
 - `M_PER_COUNT` (roll a marked 5.00 m), `WHEELBASE_L_M`, `SERVO_CENTER_US`,
   `SERVO_US_PER_RAD`, the `pwmForSpeed()` table, steering gains `Kh`/`Kc`.
+- ⚠️ **`DELTA_MAX_RAD` ships at 0.6 rad (34°) but the linkage only gives ±7° (~0.12
+  rad).** As written the controller can drive the servo into a mechanical stop and
+  stall it. Reduce to the measured limit. Details + the encoder-on-steered-axle
+  scoring bug are in `docs/design/EV_Steering_Linkage_Design.md` §10.
 - Confirm four **signs** on the bench: `HEADING_SIGN` (pose.cpp), encoder direction
   (odo.cpp), dial `DIR_SIGN` (ui.cpp), steering feedback (steer.cpp).
 
@@ -76,8 +83,12 @@ implemented. **Never run on hardware yet.** After any change, run
 - Keep calibration constants as named constants in `config.h`, not magic numbers.
 - The estimator is **gated** (`poseSetActive`) so core1 (IMU) and core0 (LCD) never hit
   the shared I2C0 bus at once — don't add LCD writes during a run.
-- Open steering question: which feature is the true pivot axis (decides direct-coaxial
-  vs arm-driven servo mount) — see `docs/hardware/CAD_SUMMARY.md`.
+- ~~Open steering question: which feature is the true pivot axis~~ **Resolved
+  2026-08-16:** the vertical Ø12.97 bore at (15.63, 36.01) in `EV-front-axle-v2.stl`,
+  dead centre in the beam's X span and on the wheel axle line (trail = 0.03 mm). The
+  mount is **arm-driven via a drag link**, not coaxial — the working steering angle is
+  only 1–4°, so a 1:1 coaxial mount would pass the servo's full 1–1.5° of gear lash
+  straight to the beam. r_lever = **89.09 mm**. See `docs/design/EV_Steering_Linkage_Design.md`.
 
 ## Git / workflow
 
