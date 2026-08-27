@@ -14,7 +14,10 @@ each doc is self-contained and cross-links the others.
    **pre-power checklist** before you ever connect the battery.
 4. **`BUILD_AND_FLASH.md`** — install the toolchain, build, flash `ev_firmware.uf2`,
    open the serial monitor.
-5. **`BRINGUP_AND_TUNING.md`** — the 9-step bench bring-up (wheels off the ground
+5. **`OPERATING_GUIDE.md`** — how to actually *use* the flashed firmware: the
+   built-in calibration menu (hold SET at power-on), what to calibrate in what
+   order, how to enter targets, and how to fire a run. **Start here after flashing.**
+6. **`BRINGUP_AND_TUNING.md`** — the 9-step bench bring-up (wheels off the ground
    first), each step with the expected serial output, the constant/sign it nails
    down, and troubleshooting. This is where the car goes from "powered" to "runs."
 

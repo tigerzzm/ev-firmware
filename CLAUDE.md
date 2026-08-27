@@ -81,8 +81,12 @@ implemented. **Never run on hardware yet.** After any change, run
 - **Don't edit `CMakeLists.txt` or `pico_sdk_import.cmake` casually** — the Pico VS Code
   extension regenerates them with local SDK paths; they may show as locally modified.
 - Keep calibration constants as named constants in `config.h`, not magic numbers.
-- The estimator is **gated** (`poseSetActive`) so core1 (IMU) and core0 (LCD) never hit
-  the shared I2C0 bus at once — don't add LCD writes during a run.
+- **The IMU and LCD are on SEPARATE I2C buses** (IMU = I2C0 GP4/GP5, LCD = I2C1
+  GP2/GP3), so they cannot collide and the LCD *is* written live during a run
+  (`uiShowRun`, throttled by `LCD_RUN_UPDATE_MS`). `poseSetActive` remains as the
+  estimator on/off switch; its old bus-arbitration role is gone.
+- **Every tunable lives in `src/config.h`**, organised §1–§8. No magic numbers
+  elsewhere — if you add a constant, hoist it there.
 - ~~Open steering question: which feature is the true pivot axis~~ **Resolved
   2026-08-16:** the vertical Ø12.97 bore at (15.63, 36.01) in `EV-front-axle-v2.stl`,
   dead centre in the beam's X span and on the wheel axle line (trail = 0.03 mm). The

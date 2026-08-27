@@ -1,6 +1,9 @@
 # Electric Vehicle (Div C) — Rules & Scoring Model
 
-**Season note:** Science Olympiad names seasons by the national tournament year, so the **2026–2027 school year = the 2027 season**. Electric Vehicle is confirmed on the official **2027 Division C** event list, but as of July 2026 the **2027 rules manual is not yet released** ("2027 resources coming soon"). Everything below is from the **2026 rules manual**, which is the best available basis. EV is a returning event, so expect the 2027 rules to be very close, with at most minor numeric tweaks. Re-verify against the 2027 manual the moment it posts (typically early fall).
+**Season note:** Science Olympiad names seasons by the national tournament year, so the **2026–2027 school year = the 2027 season**. Electric Vehicle is confirmed on the official **2027 Division C** event list, but as of July 2026 the **2027 rules manual is not yet released** ("2027 resources coming soon"). Everything below is from the **2026 rules manual**, which is the best available basis. EV is a returning event, so expect the 2027 rules to be very close, with at most minor numeric tweaks. **Release date confirmed: the 2027 Division C rules manual posts Tuesday,
+8 September 2026, 9:00 am Central** (soinc.org/rules-2027 — request the PDF by email
+there). Re-verify every number below against it the moment it lands; until then treat
+this file as provisional.
 
 ---
 

@@ -27,7 +27,7 @@ the can gate; a single **550 motor** via a **BTS7960** drives the rear.
 
 ## Power tree
 
-- **Battery (8×AA NiMH, ~9.6 V)** → BTS7960 `B+/B−` (motor, 12 AWG) **and** → buck.
+- **Battery (8×AA NiMH, ~9.6 V)** → BTS7960 `B+/B−` (motor, **16 AWG direct**) **and** → buck (logic/servo only).
 - **Buck → 5 V** → servo V+, BTS7960 `VCC` (logic), Pico `VSYS` (pin 39, ≤5.5 V).
 - **Pico 3V3 (pin 36)** → BNO085, LCD (see note), KY-040 dial, level-shifter LV.
 - **All grounds common.** Route motor current on its own thick leads.

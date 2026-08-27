@@ -80,7 +80,7 @@ All GPIO are 3.3 V and **not** 5 V-tolerant. PWM: any GPIO. PIO: any GPIO. *(Mat
 
 ## 3. Power & wiring notes
 
-- **Motor** runs straight off the pack through the BTS7960. Keep motor + logic grounds **common** but route motor current on its own thick leads (12 AWG) back to the pack, not through the logic ground.
+- **Motor** runs straight off the pack through the BTS7960. Keep motor + logic grounds **common** but route motor current on its own thick leads (**16 AWG**; both legs, since the return carries the same current) back to the pack, not through the logic ground. Never through a breadboard, and never through a regulator — a buck in this path current-limits the starting surge and the motor will hum without starting.
 - **Servo** wants a stable **5 V** and can pull >1 A on a stall spike — feed it from a regulator (a 5 V, ≥2 A buck), **not** a Pico pin. Common-ground with the Pico.
 - **Pico** powers from the pack via VSYS — VSYS accepts ~1.8–5.5 V; feed the 5 V rail into VSYS, not the raw pack.
 - **BNO085** at 3.3 V from the Pico's 3V3(OUT); on the 3.3 V I2C bus directly.

@@ -35,9 +35,15 @@ pre-power checklist, and only then connect the battery.** A visual is in
 ```
 
 **Rules of the power tree**
-- **Motor power** goes battery → BTS7960 `B+`/`B−` on its own **thick leads (12 AWG)**.
-  Keep this high-current path away from logic wiring; bring its ground back to the
+- **Motor power** goes battery → BTS7960 `B+`/`B−` on its own **thick leads —
+  16 AWG is plenty** (14–18 all fine; 12 AWG is unnecessary here). Both legs must be
+  thick: current flows in a loop, so the return carries the same amps as the feed.
+  **This path must NEVER go through a breadboard** — contacts are rated ~1 A each and
+  their resistance alone will stop the motor starting. Bring its ground back to the
   pack, not through the Pico's ground.
+  *Sizing:* 8×AA NiMH have ~240 mΩ internal resistance, capping the starting surge
+  near 20–25 A with 2–5 A continuous. Over a 30 cm run that is 0.16 V of drop at
+  16 AWG; going to 12 AWG saves 0.1 V and costs you a stiff, hard-to-route lead.
 - **5 V rail** comes from the buck (≥2 A). It feeds three things: the **servo V+**,
   the **BTS7960 `VCC`** (logic supply — this is 5 V), and the **Pico `VSYS`** (pin 39).
   Do **not** exceed 5.5 V into VSYS.
@@ -56,16 +62,23 @@ pre-power checklist, and only then connect the battery.** A visual is in
 
 | BTS7960 pin | Connect to | Note |
 |---|---|---|
-| B+ / B− | Battery pack + / − | Motor supply, 12 AWG. 6–27 V, so 9.6 V pack is fine. |
+| B+ / B− | Battery pack + / − | Motor supply, **16 AWG, direct — never via breadboard or a regulator**. 6–27 V, so 9.6 V pack is fine. |
 | M+ / M− | 550 motor terminals | If the motor spins backward, swap these two. |
 | VCC | **5 V** rail (buck) | Logic supply. |
 | GND | common ground | |
 | RPWM | Pico **GP16** (pin 21) | Forward PWM. 3.3 V drive is accepted. |
 | LPWM | Pico **GP17** (pin 22) | Reverse / brake PWM. |
-| R_EN + L_EN | Pico **GP18** (pin 24) | **Tie both enables to this one pin.** |
+| R_EN | Pico **GP18** (pin 24) | Right half-bridge inhibit. |
+| L_EN | Pico **GP26** (pin 31) | Left half-bridge inhibit. Separate pin, but firmware always writes both together. |
 | R_IS / L_IS | leave unconnected | Optional current sense (not used). |
 
 Add a **100 µF+** electrolytic across B+/B− near the driver to absorb motor spikes.
+
+> ⚠️ **Never regulate the motor supply.** B+ goes straight to the pack. Putting a buck
+> converter in this path current-limits the motor to the converter's rating (2–3 A),
+> which is far below the starting surge — the motor then hums and will not start, but
+> spins fine if you help it by hand. The BTS7960 takes 6–27 V directly; speed is set
+> by PWM duty, not by regulating the supply.
 
 ---
 
@@ -75,10 +88,13 @@ Add a **100 µF+** electrolytic across B+/B− near the driver to absorb motor s
 |---|---|---|
 | VIN | **3.3 V** (Pico pin 36) | Regulates internally; 3.3 V is cleanest. |
 | GND | common | |
-| SDA | Pico **GP4** (pin 6) | Shared I2C0. |
-| SCL | Pico **GP5** (pin 7) | |
+| SDA | Pico **GP20** (pin 26) | I2C0 — **shield's "I2C0" connector** |
+| SCL | Pico **GP21** (pin 27) | |
 | INT | Pico GP6 (pin 9) | Optional; firmware works without it. |
 | RST | Pico GP7 (pin 10) | Optional; clean reset. |
+
+The shield's 4-pin `I2C0` connector carries SDA/SCL/3V3/GND together — use it
+rather than the 3-pin rows, which would need power and ground duplicated.
 
 Address is **0x4A** (leave the address pin alone). The breakout already has **10 K
 pull-ups** on SDA/SCL, so you likely don't need to add any.
@@ -87,9 +103,13 @@ pull-ups** on SDA/SCL, so you likely don't need to add any.
 
 ## 4. LCD — 16×2 with PCF8574 I2C backpack  ← read this carefully
 
-The LCD shares the I2C0 bus with the BNO085. The catch: many PCF8574 backpacks are
-run at **5 V**, which would pull SDA/SCL to 5 V and **damage the Pico and BNO085.**
-Two safe options:
+**The LCD is on its own bus: I2C1, GP14/GP15** — the shield's `I2C1` connector.
+It does NOT share with the BNO085 (I2C0, GP20/GP21). Two separate controllers, so the two devices can never collide —
+and the display stays live during a run.
+
+The catch: many PCF8574 backpacks are run at **5 V**, which would put 5 V on
+GP14/GP15 and **damage the Pico.** (It can no longer reach the BNO085, which is one
+more reason for the split.) Two safe options:
 
 - **Option A (simplest, recommended): power the LCD backpack at 3.3 V.** PCF8574
   modules are typically rated ~2.5–6 V, so at 3.3 V the logic is bus-safe. The only
@@ -103,8 +123,10 @@ Two safe options:
 |---|---|
 | VCC | 3.3 V (Option A) **or** 5 V via level-shifter HV (Option B) |
 | GND | common |
-| SDA | Pico GP4 (pin 6) — direct (A) or shifter LV (B) |
-| SCL | Pico GP5 (pin 7) — direct (A) or shifter LV (B) |
+| SDA | Pico **GP14 (pin 19)** — direct (A) or shifter LV (B) |
+| SCL | Pico **GP15 (pin 20)** — direct (A) or shifter LV (B) |
+
+The shield's `I2C1` connector is exactly these pins.
 
 Address **0x27** (some are 0x3F — if the LCD stays blank, that's the first thing to
 check, along with the contrast pot). No conflict with the BNO085 at 0x4A.
@@ -115,7 +137,7 @@ check, along with the contrast pot). No conflict with the BNO085 at 0x4A.
 
 | Servo wire | Connect to | Note |
 |---|---|---|
-| Signal (usually orange/white) | Pico **GP15** (pin 20) | 50 Hz, 1000–2000 µs. |
+| Signal (usually orange/white) | Pico **GP5** (pin 7) | 50 Hz, 1000–2000 µs. |
 | V+ (red) | **5 V** rail (buck) | **Not** a Pico pin — servos spike >1 A. |
 | GND (brown/black) | common | |
 
@@ -125,24 +147,42 @@ Add a **470 µF** cap across the servo's 5 V rail to ride out stall spikes.
 
 ## 6. Free-rolling front encoder (distance)
 
-| Encoder | Connect to | Note |
-|---|---|---|
-| A | Pico **GP10** (pin 14) | Must be consecutive with B (the PIO reads A on pin, B on pin+1). |
-| B | Pico **GP11** (pin 15) | |
-| V+ | 3.3 V **if the encoder supports it**, else 5 V | **If 5 V: level-shift A/B down to 3.3 V.** |
-| GND | common | |
+**Confirmed part: Signswise incremental optical encoder, DC 5–24 V, 6 mm shaft,
+NPN open-collector output** (Amazon B085ZLCYS1). Wiring below is specific to it.
 
-**Check the encoder's rated voltage.** If it's a 5 V unit and you feed its A/B
-straight into GP10/GP11, you can damage the Pico. Either power it at 3.3 V (if it
-works there) or route A and B through the level shifter (5 V in → 3.3 V out).
+| Encoder wire | Connect to | Note |
+|---|---|---|
+| **Green** = A | Pico **GP10** (pin 14) | + 4.7 k pull-up to **3.3 V** |
+| **White** = B | Pico **GP11** (pin 15) | + 4.7 k pull-up to **3.3 V**. Must be consecutive with A (PIO reads A on pin, B on pin+1). |
+| **Red** = V+ | **5 V** rail (buck) | Needs ≥5 V — it will **not** run at 3.3 V. |
+| **Black** = V0 | common ground | |
+| **Shield** | ground at the **Pico end only** | One end only, or you make a ground loop. |
+
+**No level shifter needed.** The output is **NPN open-collector**: the transistor only
+ever pulls the line down to GND, it never sources voltage. So the pull-up resistor —
+not the supply — sets the logic high level. Pull up to **3.3 V** and the line swings
+0 ↔ 3.3 V, which is Pico-safe even though the encoder body runs on 5 V.
+
+> ⚠️ **Pull up to 3.3 V, NEVER to 5 V.** A 5 V pull-up puts 5 V on GP10/GP11 and
+> damages the Pico. This is the whole trick — get it wrong and the "no level shifter
+> needed" logic stops holding.
+
+> ⚠️ **Never connect A or B directly to VCC** — that burns the output transistor
+> (manufacturer's own warning).
+
+The PIO enables the Pico's internal pull-ups (~50–80 kΩ) at init, so it may work with
+no external resistors at all. Fit the 4.7 k anyway: the internal ones are weak, and
+weak pull-ups on an open-collector line give slow rise times and poor noise immunity
+right next to a 550 motor.
 
 ---
 
 ## 7. Dial + buttons (UI)
 
-- **KY-040 dial:** `+` → 3.3 V, `GND` → common, `CLK` → **GP20** (26), `DT` → **GP21**
-  (27), `SW` (push) → **GP22** (29). Powering it at 3.3 V keeps its outputs bus-safe.
-- **START button:** one leg → **GP14** (19), other leg → **GND**. (Firmware enables
+- **Dial (KY-040 or bare EN12):** `+` → 3.3 V, `GND` → common, `CLK` → **GP2** (4),
+  `DT` → **GP3** (5), `SW` (push) → **GP22** (29). A bare encoder needs no external
+  pull-ups — the firmware enables the internal ones.
+- **START button:** one leg → **GP4** (6), other leg → **GND**. (Firmware enables
   the internal pull-up; pressed = LOW. This is the pin the **#2-pencil trigger**
   presses.)
 - **SET button:** one leg → **GP19** (25), other leg → **GND**.
@@ -167,13 +207,15 @@ Go through every line with a multimeter. Do **not** skip this.
    (±0.2) *before* anything else is connected to it. Adjust the pot if it's a
    variable buck.
 3. **No 5 V on the 3.3 V bus:** confirm the BNO085 VIN and LCD VCC (Option A) read
-   3.3 V, not 5 V. Confirm nothing 5 V (LCD Option B, 5 V encoder) touches GP4/GP5/
-   GP10/GP11 without going through the level shifter.
+   3.3 V, not 5 V. Confirm nothing 5 V (LCD Option B, 5 V encoder) touches GP10/GP11/
+   GP14/GP15/GP20/GP21 without going through the level shifter.
 4. **VSYS ≤ 5.5 V:** meter the wire going to Pico pin 39; it should be ~5 V.
 5. **Grounds common:** continuity between pack−, buck−, Pico GND, BTS7960 GND, servo
    GND, BNO GND, LCD GND, encoder GND — all should beep.
 6. **Polarity:** battery +/− to B+/B− and buck IN correct; servo and BNO not reversed.
-7. **Enable tie:** BTS7960 R_EN and L_EN both go to GP18.
+7. **Enables:** BTS7960 R_EN → GP18 (pin 24), L_EN → GP26 (pin 31). Two separate
+   wires — do **not** jumper them together on the module. If your board has a
+   factory jumper linking R_EN and L_EN, remove it.
 8. **Wheels off the ground** for first power-on.
 
 Only after all eight pass: connect the battery, then move to `BUILD_AND_FLASH.md`.

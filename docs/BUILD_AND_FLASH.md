@@ -22,21 +22,39 @@ The `CMakeLists.txt` already keeps the extension's header block, so:
    `RPI-RP2`), then use the extension's **Run/Flash**, or drag `build/ev_firmware.uf2`
    onto the drive.
 
-## Path B — Command line
+## Path B — Command line (VERIFIED 2026-08-22)
+
+The Pico VS Code extension already installed cmake, ninja, the ARM toolchain, the SDK
+and picotool under `~/.pico-sdk/` — but **none of them are on your PATH**, so a bare
+`cmake ..` fails with "command not found". Use the extension's copies:
 
 ```bash
-cd code
-mkdir build && cd build
-cmake ..            # PICO_BOARD is pinned to pico2; fetches SDK if needed
-make -j             # produces ev_firmware.uf2
+cd ~/Documents/EV_2026/ev-firmware
+export PATH="$HOME/.pico-sdk/cmake/v4.3.4/bin:$HOME/.pico-sdk/ninja/v1.13.2:$PATH"
+export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/2.3.0"
+export PICO_TOOLCHAIN_PATH="$HOME/.pico-sdk/toolchain/15_2_Rel1"
+
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DPICO_SDK_PATH="$PICO_SDK_PATH" \
+  -DPICO_TOOLCHAIN_PATH="$PICO_TOOLCHAIN_PATH" \
+  -DPICO_BOARD=pico2
+
+cmake --build build          # -> build/ev_firmware.uf2
 ```
-If you have the SDK locally, `export PICO_SDK_PATH=/path/to/pico-sdk` first to skip
-the git fetch.
+
+Version numbers in those paths will drift as the extension updates — check with
+`ls ~/.pico-sdk/cmake ~/.pico-sdk/ninja ~/.pico-sdk/toolchain ~/.pico-sdk/sdk`.
+
+Last verified build: **117/117 targets, zero warnings**, 63.6 KB flash / 7.9 KB RAM.
 
 **Flash:** hold **BOOTSEL**, plug in USB → the Pico mounts as `RPI-RP2` →
 copy the uf2:
 ```bash
-cp ev_firmware.uf2 /path/to/RPI-RP2      # or drag-and-drop in a file manager
+cp build/ev_firmware.uf2 /Volumes/RPI-RP2     # macOS; drag-and-drop also works
+```
+Or use picotool (no BOOTSEL needed if the board is already running this firmware):
+```bash
+~/.pico-sdk/picotool/2.3.0/picotool/picotool load -x build/ev_firmware.uf2
 ```
 The Pico reboots and runs it.
 
