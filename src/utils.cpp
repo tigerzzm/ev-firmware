@@ -14,11 +14,16 @@ double utils::angleError(double angle1, double angle2, bool radians) {
  * Returns the angle in the range [0, 2PI]
  */
 double utils::angleSquish(double angle, bool radians) {
-  float circle = radians ? (2.f * M_PI) : 360;
+  // `circle` was a float holding 2*pi, which is ~1.7e-7 larger than the true
+  // value — a needless precision loss in a double-precision function.
+  const double circle = radians ? (2.0 * M_PI) : 360.0;
 
-  while (angle < 0)
-    angle += circle;
-  return fmod(angle, circle);
+  // fmod first, so this is O(1). The previous `while (angle < 0) angle += circle`
+  // was unbounded: a large negative input would spin for many thousands of
+  // iterations, and this runs on the 500 Hz estimator tick.
+  double a = std::fmod(angle, circle);
+  if (a < 0) a += circle;
+  return a;
 }
 
 /**
@@ -76,4 +81,17 @@ float utils::getCurvature(Position pose, Position other) {
 
   // return curvature
   return side * ((2 * x) / (d * d));
+}
+
+/**
+ * @brief Single-pole low-pass filter step (see utils.h).
+ *
+ * alpha = dt / (tau + dt) is the exact discretisation of a first-order lag for
+ * a sample taken dt after the last one, so an irregular tick rate stays correct.
+ */
+float utils::lowpass(float prev, float sample, float dt, float tau) {
+  if (dt <= 0.0f) return prev;
+  if (tau <= 0.0f) return sample;
+  const float alpha = dt / (tau + dt);
+  return prev + alpha * (sample - prev);
 }

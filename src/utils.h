@@ -39,6 +39,18 @@ double radToDeg(double rad);
 float slew(float target, float current, float maxChange);
 
 /**
+ * @brief Single-pole (exponential) low-pass filter step.
+ *
+ * @param prev   previous filtered value
+ * @param sample new raw sample
+ * @param dt     seconds since the previous sample
+ * @param tau    filter time constant, seconds
+ * @return float - the new filtered value. dt<=0 returns prev unchanged;
+ *         tau<=0 disables filtering and returns sample.
+ */
+float lowpass(float prev, float sample, float dt, float tau);
+
+/**
  * @brief Get the signed curvature of a circle that intersects the first pose
  * and the second pose. (Kept for the path/steering follower.)
  */

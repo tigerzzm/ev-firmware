@@ -12,7 +12,7 @@ cp src/imu.cpp "$STUBS/__imu.cpp"
 g++ -std=gnu++17 -fsyntax-only -Wall -Wextra -Wno-unused-parameter -I"$STUBS" -Isrc "$STUBS/__imu.cpp" \
   && echo "OK   src/imu.cpp" || fail=1
 rm -f "$STUBS/__imu.cpp"
-for f in odo pose drive path steer speed ui lcd sm main utils pid motor_controller; do
+for f in odo pose drive path steer speed ui lcd sm cal main utils pid motor_controller; do
   g++ -std=gnu++17 -fsyntax-only -Wall -Wextra -Wno-unused-parameter -I"$STUBS" -Isrc "src/$f.cpp" \
     && echo "OK   src/$f.cpp" || fail=1
 done

@@ -9,6 +9,12 @@
 //==============================================================================
 #include <cstdint>
 
+// Scans the LCD's I2C bus and prints every address that responds. Returns true if
+// something answered at LCD_I2C_ADDR. Worth having because HD44780 backpacks are
+// written blind — without this, a missing LCD, a wrong address and a broken wire
+// all look identical (silence).
+bool lcdProbe();
+
 void lcdInit();                                   // 4-bit init; assumes I2C0 pins set
 void lcdClear();
 void lcdSetCursor(uint8_t col, uint8_t row);      // row 0 or 1

@@ -6,12 +6,8 @@
 // Harvested MotorController regulating GROUND SPEED (m/s) from the free roller.
 // Ks/Kv/Ka are for m/s -> PWM% and MUST be re-calibrated for the EV drivetrain.
 // TODO(bench): tune these.
-static MotorController s_speedCtl(/*Kp*/0.0f, /*Ki*/0.0f, /*Kd*/0.0f,
-                                  /*Ks*/0.0f, /*Kv*/0.0f, /*Ka*/0.0f);
-
-// Trapezoid parameters — bench-tune accel/decel to taste.
-static constexpr float ACCEL_FRAC = 0.15f;   // fraction of L spent accelerating
-static constexpr float DECEL_FRAC = 0.10f;   // fraction of L spent at the very end
+static MotorController s_speedCtl(SPEED_KP, SPEED_KI, SPEED_KD,
+                                  SPEED_KS, SPEED_KV, SPEED_KA);
 
 void speedInit() {}
 
@@ -22,10 +18,8 @@ float speedTrapezoid(float s, float L, float T) {
   float dZone = (1.0f - DECEL_FRAC) * L;
   // scale cruise up so the average still ~= L/T despite ramp zones
   float peak = vCruise / (1.0f - 0.5f * (ACCEL_FRAC + DECEL_FRAC));
-  // Floor the ramps at a fraction of peak so the car never coasts toward v=0
-  // (which would stall cruise before the closed-loop creep takes over, and makes
-  // the time integral ∫ds/v diverge). The precise stop is handled in APPROACH.
-  const float lo = 0.25f * peak;
+  // Ramp floor: see TRAPEZOID_FLOOR_FRAC in config.h §4 for why it isn't 0.
+  const float lo = TRAPEZOID_FLOOR_FRAC * peak;
   if (s < aZone) return lo + (peak - lo) * (s / std::max(aZone, 1e-3f));    // ramp up
   if (s < dZone) return peak;                                              // cruise
   float t = (L - s) / std::max(L - dZone, 1e-3f);                          // ramp down
@@ -35,7 +29,7 @@ float speedTrapezoid(float s, float L, float T) {
 float pwmForSpeed(float mps) {
   // TODO(bench): replace with interpolation over the calibrated PWM->speed table.
   // Placeholder linear guess so the structure compiles and runs (NOT accurate).
-  float pwm = mps * 40.0f;                      // <-- CALIBRATE
+  float pwm = mps * PWM_PER_MPS;                // slope lives in config.h §2
   return std::clamp(pwm, 0.0f, 100.0f);
 }
 

@@ -10,5 +10,6 @@
 
 void driveInit();
 void driveForward(float pwmPercent);   // 0..100 forward
+void driveReverse(float pwmPercent);    // 0..100 reverse (bench/brake use)
 void driveBrake();                      // active brake (drive against motion briefly)
 void driveCoast();                      // disable outputs, let it roll

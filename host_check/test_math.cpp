@@ -3,6 +3,7 @@
 #include "path.h"
 #include "utils.h"
 #include "speed.h"
+#include "config.h"
 #include <cstdio>
 #include <cmath>
 static int fails=0;
@@ -27,6 +28,36 @@ int main(){
   chk("angleError(350,10)", utils::angleError(350,10,false), -20.0, 1e-6);
   chk("angleSquish(-90)",   utils::angleSquish(-90,false), 270.0, 1e-6);
   chk("slew clamps",        utils::slew(100,0,5), 5.0, 1e-6);
+
+  // ---- ground-speed low-pass (odo.cpp uses this for the free-roller estimate) --
+  chk("lowpass dt=0 holds",  utils::lowpass(1.0f, 9.0f, 0.0f, 0.1f), 1.0, 1e-6);
+  chk("lowpass tau=0 passes",utils::lowpass(1.0f, 9.0f, 0.02f, 0.0f), 9.0, 1e-6);
+  chk("lowpass dt==tau",     utils::lowpass(0.0f, 1.0f, 0.1f, 0.1f), 0.5, 1e-6);
+  // A step held for 5 tau must settle close to the new value and never overshoot
+  // it (a first-order lag has no overshoot). The discrete alpha = dt/(tau+dt) is
+  // marginally slower than the continuous e^(-t/tau), so 5 tau lands at ~98.9%.
+  {
+    float v = 0.0f; const float dt = 0.02f, tau = SPEED_FILTER_TAU_S;
+    bool overshot = false;
+    for (int i = 0; i < (int)(5.0f * tau / dt); i++) {
+      v = utils::lowpass(v, 1.0f, dt, tau);
+      if (v > 1.0f) overshot = true;
+    }
+    chk("lowpass settles 5tau", v, 1.0, 0.02);
+    chk("lowpass no overshoot", overshot ? 1 : 0, 0.0, 0.0);
+  }
+  // Constant-speed ramp: differentiating a straight distance ramp and filtering it
+  // must converge on the true speed (this is exactly what odoSpeedTick does).
+  {
+    const float trueV = 1.25f, dt = 0.02f;
+    float v = 0.0f, dist = 0.0f, last = 0.0f;
+    for (int i = 0; i < 100; i++) {
+      dist += trueV * dt;
+      v = utils::lowpass(v, (dist - last) / dt, dt, SPEED_FILTER_TAU_S);
+      last = dist;
+    }
+    chk("speed est tracks ramp", v, trueV, 1e-3);
+  }
   printf("\n%s (%d failures)\n", fails? "TESTS FAILED":"ALL MATH TESTS PASS", fails);
   return fails?1:0;
 }

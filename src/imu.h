@@ -30,4 +30,10 @@ bool imuInit();
 float imuYawDeg();
 
 // True if the IMU has produced recent valid data.
+//
+// NOTE: this is a FRESHNESS check, not a chip-status check. The timestamp behind
+// it is only updated inside imuYawDeg(), so it decays to false whenever nothing
+// is polling — after IMU_TIMEOUT_MS (5 s) of no calls it reads false even on a
+// perfectly healthy sensor. Callers that are not already polling at the control
+// rate must prime it with a few imuYawDeg() calls before trusting the answer.
 bool imuHealthy();
