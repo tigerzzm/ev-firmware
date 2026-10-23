@@ -3,6 +3,7 @@
 // Adapted from robotour-pico src/imu.cpp. See imu.h for the change list.
 //==============================================================================
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 
 #include "BNO08x/Adafruit_BNO08x.h"
@@ -12,6 +13,7 @@
 #include "imu.h"
 #include "hardware/i2c.h"
 #include "pico/stdlib.h"
+#include <atomic>
 
 static euler_t s_ypr;
 static Adafruit_BNO08x *s_imu = new Adafruit_BNO08x(BNO085_RST_PIN);
@@ -33,40 +35,92 @@ static void quaternionToEuler(float qr, float qi, float qj, float qk,
   }
 }
 
-// --- health/state tracking (unchanged logic from robotour) -------------------
-static bool     s_initialized = false;
-static bool     s_has_valid   = false;
-static uint32_t s_last_valid_ms = 0;
+// --- health/state tracking -----------------------------------------------------
+// imuYawDeg() runs on core1 during a run; imuHealthy() and imuResetCount() are
+// read on core0. The fields both cores touch are atomic. (The M0+ has no atomic
+// instructions; the SDK's pico_atomic supplies them.)
+static std::atomic<bool>     s_initialized{false};
+static std::atomic<bool>     s_has_valid{false};
+static std::atomic<uint32_t> s_last_valid_ms{0};
+static std::atomic<uint32_t> s_reset_count{0};   // chip resets seen since boot
+static bool     s_init_ok = false;        // imuInit() completed successfully
+static bool     s_begun = false;          // begin_I2C succeeded: safe to poll the chip
 static uint32_t s_fail_count = 0;
-static const uint32_t IMU_TIMEOUT_MS = 5000;
-static const uint32_t MAX_IMU_FAILURES = 3;
 
 static bool enableHeadingReport() {
   // 10 ms report interval (100 Hz).
   return s_imu->enableReport(GAME_RV, 10'000);
 }
 
+// Serial output from here can block for up to ~500 ms (USB CDC with nobody
+// reading), and during a run this runs on core1 inside the estimator. While the
+// estimator is active (imuSetQuiet), messages are dropped instead.
+static std::atomic<bool> s_quiet{false};
+static void imuLog(const char *fmt, ...) {
+  if (s_quiet.load()) return;
+  va_list ap;
+  va_start(ap, fmt);
+  vprintf(fmt, ap);
+  va_end(ap);
+}
+void imuSetQuiet(bool quiet) { s_quiet.store(quiet); }
+
+static uint32_t s_last_retry_ms = 0;
+// True once any valid sample has arrived. Every "no new data" path returns the
+// last good yaw from then on — never 0, which would be a heading the car never had.
+// Atomic: written by core1, read by core0 (imuSampleAgeMs).
+static std::atomic<bool> s_ever_valid{false};
+static uint32_t s_valid_samples = 0;   // valid samples since boot (imuInit validation)
+// Set by a reset, cleared by the first valid sample after it. enableReport() only
+// confirms the command was SENT — the chip doesn't acknowledge it — so "enable
+// returned true" is not proof of recovery; a fresh sample is.
+static std::atomic<bool> s_awaiting_data{false};   // read by core0 (imuRecovering)
+static bool s_enable_sent   = true;   // the enable command went out since the last reset
+static bool s_initing       = false;  // inside imuInit(), after begin_I2C succeeded
+
 float imuYawDeg() {
-  // Recover if the chip reset itself.
+  if (!s_begun) return 0.0f;       // chip never answered: don't touch the bus
+  // Recover if the chip reset itself. After a reset the Game Rotation Vector
+  // restarts from a NEW reference, so any heading zero taken before it is wrong;
+  // sm.cpp watches imuResetCount() for that. Returning the last good yaw (not 0)
+  // keeps the estimator from seeing a sudden jump meanwhile.
   if (s_imu->wasReset()) {
-    printf("IMU was reset - re-enabling Game Rotation Vector...\n");
+    imuLog("IMU was reset - re-enabling Game Rotation Vector...\n");
     s_initialized = false;
     s_has_valid   = false;
+    s_reset_count.fetch_add(1);
     s_fail_count++;
-    if (s_fail_count > MAX_IMU_FAILURES) {
-      printf("ERROR: IMU has failed too many times (%lu). Check hardware!\n", (unsigned long)s_fail_count);
-      return 0.0f;
+    s_last_retry_ms = 0;           // re-enable on this call, below
+    s_awaiting_data = true;
+    s_enable_sent   = false;
+  }
+  // Re-enable the report after a reset, and keep retrying every IMU_RETRY_MS until
+  // a sample actually arrives (an enable sent while the hub is still booting is
+  // dropped silently). This also runs DURING imuInit(): the power-on reset is
+  // usually first seen in its validation reads, and without a re-enable there the
+  // chip never streams and init fails. Only a chip whose init fully SUCCEEDED is
+  // marked ready again, so one that fails validation stays not-ready.
+  if ((s_init_ok || s_initing) && s_awaiting_data) {
+    const uint32_t t = to_ms_since_boot(get_absolute_time());
+    if (s_last_retry_ms == 0 || t - s_last_retry_ms >= IMU_RETRY_MS) {
+      s_last_retry_ms = t ? t : 1;
+      if (enableHeadingReport()) {
+        s_enable_sent = true;
+        // imuHealthy() still reads false until a fresh sample arrives
+        // (s_has_valid), and the next START re-zeroes the heading against the
+        // chip's new reference.
+        if (s_init_ok) s_initialized = true;
+      } else {
+        imuLog("ERROR: re-enabling Game Rotation Vector failed (%lu); will retry\n",
+               (unsigned long)s_fail_count);
+      }
     }
-    if (!enableHeadingReport()) {
-      printf("ERROR: Failed to re-enable Game Rotation Vector after reset!\n");
-      return 0.0f;
-    }
-    sleep_ms(300);
+    if (!s_enable_sent) return s_ypr.yaw;   // enable not sent yet: nothing to read
   }
 
   uint32_t now = to_ms_since_boot(get_absolute_time());
-  if (s_has_valid && (now - s_last_valid_ms) > IMU_TIMEOUT_MS) {
-    printf("WARNING: IMU timeout - no data for %lu ms\n", (unsigned long)IMU_TIMEOUT_MS);
+  if (s_has_valid && (now - s_last_valid_ms) > IMU_WARN_MS) {
+    imuLog("WARNING: IMU timeout - no data for %lu ms\n", (unsigned long)IMU_WARN_MS);
     s_has_valid = false;
     s_fail_count++;
   }
@@ -74,7 +128,7 @@ float imuYawDeg() {
   sh2_SensorValue_t event;
   if (!s_imu->getSensorEvent(&event)) {
     // no new event: hold last good, or 0 if we never had data
-    return s_has_valid ? s_ypr.yaw : 0.0f;
+    return s_ever_valid ? s_ypr.yaw : 0.0f;
   }
 
   if (event.sensorId == GAME_RV) {
@@ -84,31 +138,40 @@ float imuYawDeg() {
     float qk = event.un.gameRotationVector.k;
 
     if (qr == 0.0f && qi == 0.0f && qj == 0.0f && qk == 0.0f) {
-      printf("WARNING: IMU zero quaternion\n");
-      return s_has_valid ? s_ypr.yaw : 0.0f;
+      imuLog("WARNING: IMU zero quaternion\n");
+      return s_ever_valid ? s_ypr.yaw : 0.0f;
     }
 
-    quaternionToEuler(qr, qi, qj, qk, &s_ypr, true);
-
-    if (!std::isfinite(s_ypr.yaw)) {
-      printf("WARNING: IMU non-finite yaw\n");
-      return s_has_valid ? s_ypr.yaw : 0.0f;
+    // Convert into a temporary and keep it only if it is finite. Writing s_ypr
+    // first meant one bad packet replaced the last good yaw with NaN, which every
+    // "keep last good" path then returned — and NaN in the heading poisons the
+    // pose (x, y) for the rest of the run.
+    euler_t ypr;
+    quaternionToEuler(qr, qi, qj, qk, &ypr, true);
+    if (!std::isfinite(ypr.yaw)) {
+      imuLog("WARNING: IMU non-finite yaw\n");
+      return s_ever_valid ? s_ypr.yaw : 0.0f;
     }
+    s_ypr = ypr;
 
     s_has_valid     = true;
     s_last_valid_ms = now;
     s_fail_count    = 0;
+    s_awaiting_data = false;         // recovered for real
+    s_ever_valid    = true;
+    s_valid_samples++;
     return s_ypr.yaw;
   }
 
   // Any other report we didn't ask for: ignore, keep last good.
-  return s_has_valid ? s_ypr.yaw : 0.0f;
+  return s_ever_valid ? s_ypr.yaw : 0.0f;
 }
 
 bool imuInit() {
   printf("Initializing BNO085 (Game Rotation Vector, mag-free)...\n");
   s_fail_count = 0;
   s_has_valid  = false;
+  s_init_ok    = false;
 
   // I2C bring-up with retries.
   const int MAX_INIT_ATTEMPTS = 10;
@@ -117,6 +180,7 @@ bool imuInit() {
     if (s_imu->begin_I2C(BNO08x_I2CADDR_DEFAULT, i2c0, I2C_SDA_PIN, I2C_SCL_PIN)) {
       printf("IMU I2C connection established (SDA=GP%d, SCL=GP%d).\n",
              I2C_SDA_PIN, I2C_SCL_PIN);
+      s_begun = true;
       break;
     }
     printf("IMU I2C init failed, retry %d/%d...\n", attempts + 1, MAX_INIT_ATTEMPTS);
@@ -127,6 +191,8 @@ bool imuInit() {
     return false;
   }
 
+  s_initing = true;                 // resets from here on get re-enabled (imuYawDeg)
+
   // Enable the single heading report, with retries.
   const int MAX_REPORT_ATTEMPTS = 5;
   bool enabled = false;
@@ -136,6 +202,7 @@ bool imuInit() {
     sleep_ms(100);
   }
   if (!enabled) {
+    s_initing = false;
     printf("ERROR: Could not enable Game Rotation Vector.\n");
     return false;
   }
@@ -145,22 +212,49 @@ bool imuInit() {
   int valid = 0;
   const int REQUIRED = 3;
   for (int i = 0; i < 20 && valid < REQUIRED; i++) {
-    if (std::isfinite(imuYawDeg()) && s_has_valid) valid++;
+    // Count only reads that brought a NEW sample: s_has_valid stays true after one
+    // real sample, so counting it would pass on one sample plus two stale repeats.
+    const uint32_t before = s_valid_samples;
+    (void)imuYawDeg();
+    if (s_valid_samples != before) valid++;
     sleep_ms(50);
   }
+  s_initing = false;
   if (valid < REQUIRED) {
     printf("ERROR: IMU validation failed (%d/%d valid reads).\n", valid, REQUIRED);
     return false;
   }
 
+  s_init_ok     = true;
   s_initialized = true;
   printf("IMU ready.\n");
   return true;
 }
 
+bool imuInitOk() {
+  return s_init_ok;
+}
+
+bool imuRecovering() {
+  return s_awaiting_data.load();
+}
+
+uint32_t imuSampleAgeMs() {
+  if (!s_ever_valid) return UINT32_MAX;
+  const uint32_t last = s_last_valid_ms.load();      // timestamp first (see imuHealthy)
+  return to_ms_since_boot(get_absolute_time()) - last;
+}
+
+uint32_t imuResetCount() {
+  return s_reset_count.load();
+}
+
 bool imuHealthy() {
-  if (!s_initialized) return false;
-  uint32_t now = to_ms_since_boot(get_absolute_time());
-  if (s_has_valid && (now - s_last_valid_ms) < IMU_TIMEOUT_MS) return true;
-  return false;
+  if (!s_initialized.load() || !s_has_valid.load()) return false;
+  // Timestamp FIRST, then the clock. The other order lets core1 store a newer
+  // timestamp in between, and `now - last` then wraps to ~4e9: a healthy IMU
+  // reads as stale.
+  const uint32_t last = s_last_valid_ms.load();
+  const uint32_t now  = to_ms_since_boot(get_absolute_time());
+  return (now - last) < IMU_STALE_MS;
 }

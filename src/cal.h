@@ -2,14 +2,15 @@
 //==============================================================================
 // cal — bench calibration routines.
 //
-// Entered by HOLDING THE SET BUTTON at power-on (see main.cpp). Runs instead of
-// the normal state machine, and never returns — power-cycle to get back.
+// Two ways in: hold SET at power-on (main.cpp), or hold SET for
+// CAL_ENTRY_HOLD_MS at the "EV ready" screen (sm.cpp). "8 Exit to run" returns
+// to the run sequence.
 //
-// Deliberately does NOT need the IMU: this runs before imuInit(), so you can
-// calibrate the drivetrain before the heading sensor is even wired.
+// Only the IMU-heading and steer-response tests need the IMU. A failed imuInit()
+// does not lock you out: everything else works with the heading sensor unwired.
 //==============================================================================
 
-// Top-level bench menu. Never returns — power-cycle to leave.
+// Top-level bench menu. Returns when "8 Exit to run" is chosen.
 void calMenu();
 
 // Motor + driver check. Short bursts at a dialled PWM, forward or reverse, with
@@ -26,13 +27,12 @@ void calServoTest();
 // imuHealthy(), so a chip that answered at boot but has since stopped streaming
 // is visible rather than silent.
 // Works from either entry route: main() runs imuInit() before the calibration
-// menu, and defers the fatal halt until after it.
+// menu. (A failed init no longer halts anything: runs go encoder-only.)
 void calImuTest();
 
-// Live steering-response test. Plans a nominal arc, activates the estimator, and
-// runs steerControl() continuously so you can rotate/push the car by hand and
-// watch the servo react. This is the only way to verify STEER_FB_SIGN, and it
-// exposes e_head and cross-track so the arc geometry can be sanity-checked too.
+// Live steering-response test. Activates the estimator and runs the real forward
+// or reverse steering law (DialBtn toggles) so you can rotate/push the car by hand
+// and watch the servo react. This is how STEER_DIR_SIGN is verified.
 void calSteerTest();
 
 // Live input test: shows the raw logic level of every button and both dial
@@ -40,13 +40,14 @@ void calSteerTest();
 // so this is the only way to see whether a press actually reaches the Pico.
 void calInputTest();
 
-// Live encoder readout. The ONLY way to calibrate M_PER_COUNT: zero it, push the
-// car a measured distance by hand, read the count. Prints the resulting
-// M_PER_COUNT for you. Needs no calibration itself, so it is the first thing to
-// run on new hardware.
+// Live encoder readout, forward and reverse counts separately. The ONLY way to
+// calibrate M_PER_COUNT and M_PER_COUNT_REV: zero it, push the car 5.000 m forward
+// by hand, then pull it 5.000 m back; it prints both constants for you. Needs no
+// calibration itself, so it is the first thing to run on new hardware.
 void calEncoderReadout();
 
-// PWM -> ground-speed probe. One data point per run: dial a duty %, press START,
-// the car drives ~3.5 m and reports the average speed measured over the middle
-// CAL_MEASURE_M. Repeat across the range to fill in pwmForSpeed() (speed.cpp).
+// PWM -> ground-speed probe, forward or reverse. One data point per run: dial a
+// duty %, press START, the car drives ~3.5 m and reports the average speed over
+// the middle CAL_MEASURE_M. Fit a line through the points for the feedforward
+// constants SPEED_FF_OFFSET_PCT / SPEED_FF_PCT_PER_MPS (config.h §2).
 void calPwmProbe();

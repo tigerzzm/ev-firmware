@@ -1,19 +1,16 @@
 #pragma once
 //==============================================================================
-// steer — steering servo output + lateral control law.
-// NEW for the EV (robotour steered differentially; there is no servo code to
-// harvest). Servo I/O below is real; the control GAINS and SIGNS are bench-tuned
-// (see EV_Detailed_Design §6.2 and §7). robotour's utils::getCurvature /
-// findLookaheadCurvature can be a reference if you prefer pure-pursuit over the
-// Stanley-style law sketched here.
+// steer — steering servo output. The control laws live in steer_law.* (pure math,
+// tested); this file maps a steering angle onto the servo and remembers it.
 //==============================================================================
-#include "position.h"
-#include "path.h"
 
 void  steerInit();                       // servo PWM @ 50 Hz, centre the wheels
 void  steerWriteUs(int us);              // raw servo command (clamped)
-void  steerSetAngle(float deltaRad);     // steering angle -> servo us
+void  steerSetAngle(float deltaRad);     // beam angle (+ = wheels LEFT) -> servo
+void  steerCenter();                     // steerSetAngle(0)
+void  steerRelease();                    // stop the pulses: servo goes limp, holds by friction
 
-// Full lateral control: feedforward arc + cross-track/heading feedback.
-// Returns the commanded steering angle (rad) and also writes it to the servo.
-float steerControl(const ArcPlan &plan, const Position &pose, float speedEst);
+// Beam angle the servo was last actually sent (after the travel and electrical
+// clamps), radians. Read by the estimator on core1: the free roller sits on the
+// steered axle, so it rolls along theta + delta, not theta.
+float steerAngleRad();

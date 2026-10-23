@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EV Run Card</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: a pit-crew run card. Page 1 is what to do at the table (with the real
+   16x2 LCD screens); then fill-in sheets; then how the car runs and its
+   calibration record. Print-first: Letter, 0.45in margins, light palette. */
+:root {
+  --paper:  #ffffff;
+  --ink:    #15191e;
+  --muted:  #56606c;
+  --rule:   #d2d8e0;
+  --fill:   #eff3f8;
+  --accent: #1b5bc9;   /* signal blue */
+  --warn:   #9a4d00;   /* caution amber */
+  --lcd-bg: #1c3ea3;
+  --lcd-ink:#eaf1ff;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media screen and (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #101318; --ink: #e6e9ee; --muted: #9ba5b2; --rule: #2a3039;
+    --fill: #181d24; --accent: #7ea8ff; --warn: #f0a552;
+    --lcd-bg: #23429e; --lcd-ink: #eef3ff;
+    color-scheme: dark;
+  }
+}
+@media screen {
+  :root[data-theme="dark"] {
+    --paper: #101318; --ink: #e6e9ee; --muted: #9ba5b2; --rule: #2a3039;
+    --fill: #181d24; --accent: #7ea8ff; --warn: #f0a552;
+    --lcd-bg: #23429e; --lcd-ink: #eef3ff;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 48px;
+}
+.sheet { max-width: 880px; margin: 0 auto; display: grid; gap: 34px; }
+
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: 46px; font-weight: 700; letter-spacing: 0.01em; text-transform: uppercase; line-height: 1; }
+h2 { font-size: 24px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.1; }
+h3 { font-size: 18px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; line-height: 1.15; }
+p { margin: 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.9em; }
+b { font-weight: 600; }
+
+.kicker {
+  font-family: var(--font-display); font-weight: 600; font-size: 13px;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
+}
+.section-head { display: grid; gap: 4px; padding-top: 10px; border-top: 2px solid var(--ink); }
+section { display: grid; gap: 14px; }
+.note { color: var(--muted); font-size: 0.92em; }
+.warn { color: var(--warn); font-weight: 600; }
+
+/* ---- masthead ---- */
+.masthead { display: grid; gap: 14px; }
+.masthead-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 24px; }
+.masthead-top .kicker:last-child { color: var(--muted); }
+.lede { max-width: 66ch; font-size: 16px; }
+.score { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.score li {
+  border: 1px solid var(--rule); border-radius: 3px; padding: 4px 10px;
+  font-size: 13.5px; background: var(--fill); font-variant-numeric: tabular-nums;
+}
+.score li b { font-family: var(--font-mono); font-weight: 600; color: var(--accent); margin-right: 4px; }
+.print-hint { font-size: 13.5px; color: var(--muted); }
+
+/* ---- checklist ---- */
+.checks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 28px; }
+.checks li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; }
+.box {
+  display: inline-block; width: 0.95em; height: 0.95em; margin-top: 0.22em;
+  border: 1.6px solid var(--ink); border-radius: 2px;
+}
+
+/* ---- LCD ---- */
+.lcd {
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.4; font-weight: 500;
+  background: var(--lcd-bg); color: var(--lcd-ink);
+  padding: 7px 10px; border-radius: 4px; display: inline-grid; align-self: start;
+  box-shadow: inset 0 0 0 2px rgba(0,0,0,0.25);
+}
+.lcd span { display: block; white-space: pre; width: 16ch; }
+
+/* ---- steps ---- */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: step; }
+.steps > li {
+  counter-increment: step;
+  display: grid; grid-template-columns: 2.2em minmax(0, 1fr) auto; gap: 4px 16px;
+  padding: 12px 0; border-bottom: 1px solid var(--rule);
+}
+.steps > li::before {
+  content: counter(step);
+  font-family: var(--font-display); font-weight: 700; font-size: 26px; line-height: 1;
+  color: var(--accent);
+}
+.step-body { display: grid; gap: 6px; }
+.step-body p { max-width: 62ch; }
+.ranges { list-style: none; margin: 2px 0 0; padding: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; font-size: 14px; }
+.ranges dt { font-family: var(--font-mono); font-weight: 600; }
+.ranges dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+/* ---- tables ---- */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; vertical-align: top; padding: 6px 9px; border-bottom: 1px solid var(--rule); }
+th { background: var(--fill); font-family: var(--font-display); font-weight: 600; font-size: 13.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+td.lcd-cell { white-space: pre; font-family: var(--font-mono); font-size: 12.5px; }
+.fill-in td, .fill-in th { border: 1px solid var(--rule); }
+.fill-in td { height: 34px; }
+.fill-in th.rowhead, .fill-in td.rowhead { width: 7.5em; }
+.cal td.value { width: 22%; border-left: 1px solid var(--rule); }
+.cal td.num { width: 2em; color: var(--accent); font-family: var(--font-display); font-weight: 700; font-size: 16px; }
+
+.formula {
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.6;
+  background: var(--fill); border: 1px solid var(--rule); border-radius: 3px;
+  padding: 10px 14px; margin: 0; overflow-x: auto; white-space: pre;
+}
+
+.grid4 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 28px; }
+.grid4 > div { display: grid; gap: 4px; align-content: start; }
+.grid4 h3 { font-size: 16px; color: var(--accent); }
+
+.menu { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.menu li { font-family: var(--font-mono); font-size: 13px; border: 1px solid var(--rule); border-radius: 3px; padding: 3px 9px; }
+
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 20px; justify-content: space-between; }
+
+@media (max-width: 640px) {
+  h1 { font-size: 36px; }
+  .checks, .grid4 { grid-template-columns: 1fr; }
+  .steps > li { grid-template-columns: 2em minmax(0, 1fr); }
+  .steps > li .lcd { grid-column: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ---- print ---- */
+@page { size: letter; margin: 0.45in; }
+@media print {
+  body { font-size: 8.8pt; line-height: 1.3; padding: 0; }
+  .sheet { max-width: none; gap: 9pt; }
+  .masthead { gap: 6pt; }
+  .checks { gap: 3pt 18pt; }
+  .ranges { grid-template-columns: max-content 1fr max-content 1fr; gap: 1pt 10pt; }
+  .screen-only { display: none; }
+  h1 { font-size: 25pt; }
+  h2 { font-size: 13pt; }
+  h3 { font-size: 10.5pt; }
+  .kicker { font-size: 7.5pt; }
+  .lede { font-size: 9.6pt; max-width: none; }
+  .score li { font-size: 8.2pt; padding: 2pt 6pt; background: none; }
+  .section-head { padding-top: 5pt; border-top-width: 1.5pt; }
+  section { gap: 7pt; }
+  .steps > li { padding: 3pt 0; gap: 2pt 10pt; }
+  .steps > li::before { font-size: 13pt; }
+  .step-body { gap: 2pt; }
+  .ranges { font-size: 8.6pt; }
+  .lcd { font-size: 7.8pt; background: #fff; color: #000; box-shadow: none; border: 1.2pt solid #000; padding: 3pt 6pt; border-radius: 2pt; }
+  table { font-size: 8.4pt; }
+  th { font-size: 8pt; background: #eef1f5; }
+  th, td { padding: 3pt 5pt; }
+  td.lcd-cell { font-size: 7.8pt; }
+  .fill-in td { height: 20pt; }
+  .fill-in td, .fill-in th, .cal td.value { border-color: #8a929c; }
+  .formula { font-size: 8.4pt; padding: 5pt 8pt; background: none; }
+  .menu li { font-size: 8pt; }
+  footer { font-size: 7.8pt; }
+  .page-break { break-before: page; }
+  table, .steps > li, .formula, .grid4 > div, .lcd { break-inside: avoid; }
+  .section-head { break-after: avoid; }
+}
+</style>
+</head>
+<body>
+
+<main class="sheet">
+
+<header class="masthead">
+  <div class="masthead-top">
+    <p class="kicker">Science Olympiad · Electric Vehicle C · 2027 rules</p>
+    <p class="kicker">Firmware: ev-firmware/src · Pico RP2040</p>
+  </div>
+  <h1>EV Run Card</h1>
+  <p class="lede">Keep a printed copy with the car. During Event Time, use paper only: no AI tools, and no laptop or programming tools between pressing START and picking the car up.</p>
+  <ul class="score" aria-label="How a run is scored">
+    <li><b>2</b>pt/cm rear MP to Target</li>
+    <li><b>1</b>pt/cm bottle to line</li>
+    <li><b>0.5</b>pt/s off Target Time</li>
+    <li><b>−20</b>bottle fully past line</li>
+    <li><b>(W − 35) × 1.5</b>pusher opening</li>
+  </ul>
+  <p class="print-hint screen-only">To print: open <code>docs/EV_Run_Card.html</code> from the repo in a browser, then File → Print (Letter, 100%).</p>
+</header>
+
+<section>
+  <div class="section-head">
+    <p class="kicker">At the table</p>
+    <h2>Before your time slot</h2>
+  </div>
+  <ul class="checks">
+    <li><span class="box" aria-hidden="true"></span><span>Car and batteries impounded separately. 8 AA, no lithium, labels readable.</span></li>
+    <li><span class="box" aria-hidden="true"></span><span>The car arms without <code>NOT CALIBRATED</code>: every <code>config.h</code> §1 value is measured.</span></li>
+    <li><span class="box" aria-hidden="true"></span><span>Car ≤ 80.0 cm long with pusher and MP, ≤ 35.0 cm wide. Rear MP is the rearmost point, ≤ 1.0 cm above the floor.</span></li>
+    <li><span class="box" aria-hidden="true"></span><span>USB unplugged. The car may not be tethered.</span></li>
+    <li><span class="box" aria-hidden="true"></span><span>Kit Modification Form impounded, if you started from a kit.</span></li>
+    <li><span class="box" aria-hidden="true"></span><span>Unsharpened #2 pencil, this card, and a pen.</span></li>
+  </ul>
+</section>
+
+<section>
+  <div class="section-head">
+    <p class="kicker">At the table</p>
+    <h2>Firing a run</h2>
+  </div>
+  <ol class="steps">
+    <li>
+      <div class="step-body">
+        <h3>Power on</h3>
+        <p>At <b>EV ready</b>, short-press <b>SET</b>. Holding SET for 2 s opens the bench menu instead.</p>
+      </div>
+      <div class="lcd" role="img" aria-label="LCD: EV ready. SET=run hold=cal"><span>EV ready</span><span>SET=run hold=cal</span></div>
+    </li>
+    <li>
+      <div class="step-body">
+        <h3>Enter the targets</h3>
+        <p>Turn the dial to change a value, press the dial to change the step, press SET to confirm. Every value starts from what the last run used.</p>
+        <dl class="ranges">
+          <dt>D</dt><dd>Target Distance, 5.00–9.00 m</dd>
+          <dt>B</dt><dd>Bottle Line past the Target, 1.00–3.00 m</dd>
+          <dt>T</dt><dd>Target Time, 10.0–20.0 s in 0.5 s steps</dd>
+          <dt>Level</dt><dd>Regional 2.0 m · State 3.0 m · National 4.0 m</dd>
+          <dt>MPofs</dt><dd>0.000 on run 1 (see Run 2 corrections)</dd>
+          <dt>BtlOfs</dt><dd>0.000 on run 1</dd>
+        </dl>
+      </div>
+      <div class="lcd" role="img" aria-label="LCD: D:7.00m. Inc: 0.250"><span>D:7.00m</span><span>Inc: 0.250</span></div>
+    </li>
+    <li>
+      <div class="step-body">
+        <h3>Check the plan</h3>
+        <p>Forward stop (<code>xF</code>), reverse length (<code>rev</code>) and start delay (<code>dly</code>), in metres and seconds. <b>T SHORT</b> means it will finish late. It still runs; late costs 0.5 pt/s.</p>
+      </div>
+      <div class="lcd" role="img" aria-label="LCD: xF 8.50 rev1.50. dly 0.0s ok"><span>xF 8.50 rev1.50</span><span>dly 0.0s ok</span></div>
+    </li>
+    <li>
+      <div class="step-body">
+        <h3>Place the car</h3>
+        <p>At <b>ARMED</b>: rear MP over the Start dot within about 1 cm, body on the Target side, aimed down the centerline. Distance and heading are zeroed when you press START, so adjusting now is fine. <b>SET</b> backs out.</p>
+        <p class="note"><code>ARMED  NO IMU!</code> means the heading sensor isn't answering. The run still works, with the wheels held straight.</p>
+      </div>
+      <div class="lcd" role="img" aria-label="LCD: ARMED SET=back. D7.00B2.00T15.0"><span>ARMED  SET=back</span><span>D7.00B2.00T15.0</span></div>
+    </li>
+    <li>
+      <div class="step-body">
+        <h3>Start</h3>
+        <p>Tell the event supervisor you're ready. Press <b>START</b> with the pencil, straight down. Only the pencil may touch the car. Run Time starts now, and the LCD counts the start delay down.</p>
+      </div>
+      <div class="lcd" role="img" aria-label="LCD: Delay 3.2s. t 1.8 / 15.0"><span>Delay   3.2s</span><span>t   1.8 / 15.0</span></div>
+    </li>
+    <li>
+      <div class="step-body">
+        <h3>Hands off</h3>
+        <p>The car drives, slows for the bottle, pushes it past the line, stops for 0.4 s, reverses, and stops on the Target. <span class="warn">Don't follow it</span>; wait until you're called. It stays braked so it can be measured. <b>SET</b> aborts at any time.</p>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <h3>Read the result</h3>
+        <p>Line 1: the encoder's rear-MP error and the run time. Line 2: the forward-stop error. The supervisor's tape is the official result. Write it in the run log.</p>
+      </div>
+      <div class="lcd" role="img" aria-label="LCD: MP +0.4cm t15.03. F +1.2cm ok"><span>MP +0.4cm t15.03</span><span>F +1.2cm ok</span></div>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <div class="section-head">
+    <p class="kicker">At the table</p>
+    <h2>Run 2 corrections</h2>
+  </div>
+  <p>At the result screen, short-press SET. D, B, T and the level carry over. Change only the two offsets, <b>by</b> the amounts below: the dial starts at what the last run used.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Last run result</th><th>Change by</th></tr></thead>
+      <tbody>
+        <tr><td>Rear MP 3 cm <b>beyond</b> the Target (bottle side)</td><td><code>MPofs − 0.030</code></td></tr>
+        <tr><td>Rear MP 2 cm <b>short</b> of the Target (Start side)</td><td><code>MPofs + 0.020</code></td></tr>
+        <tr><td>Bottle's near side 2 cm short of where you want it</td><td><code>BtlOfs + 0.020</code></td></tr>
+        <tr><td>Bottle not fully past the line</td><td><code>BtlOfs</code> + the shortfall + 0.020</td></tr>
+        <tr><td colspan="2">Example: run 1 used <code>MPofs −0.020</code> and the MP still ended 1 cm beyond. Enter <code>−0.030</code>, not −0.010.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Each offset moves only its own stop. MPofs never changes the push; BtlOfs never changes where the rear MP ends.</p>
+</section>
+
+<section>
+  <div class="section-head">
+    <p class="kicker">Fill in</p>
+    <h2>Run log</h2>
+  </div>
+  <div class="table-wrap">
+    <table class="fill-in">
+      <thead>
+        <tr><th class="rowhead"></th><th>D (m)</th><th>B (m)</th><th>T (s)</th><th>Level</th><th>MPofs</th><th>BtlOfs</th><th>MP off (cm)</th><th>Bottle (cm)</th><th>Time (s)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="rowhead">Practice</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td class="rowhead">Practice</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td class="rowhead"><b>Run 1</b></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td class="rowhead"><b>Run 2</b></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">MP off: + beyond the Target, − short of it. Bottle: distance from the line to the bottle's nearest side; mark whether it is fully past.</p>
+</section>
+
+<section>
+  <div class="section-head">
+    <p class="kicker">At the table</p>
+    <h2>LCD messages</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Screen</th><th>Meaning</th><th>Do this</th></tr></thead>
+      <tbody>
+        <tr><td class="lcd-cell">NOT CALIBRATED
+M_PER_COUNT=0</td><td>A <code>config.h</code> §1 value is still 0. The second line names it.</td><td>Measure it, rebuild, reflash</td></tr>
+        <tr><td class="lcd-cell">PLAN ERROR
+rev too short</td><td>The targets and offsets can't make a legal run. The second line says why.</td><td>Check D, B, T and the offsets</td></tr>
+        <tr><td class="lcd-cell">NO IMU: steer
+off. SET=ok</td><td>Heading sensor failed at power-on</td><td>SET runs with straight wheels; check the IMU wiring if there's time</td></tr>
+        <tr><td class="lcd-cell">NO RUN (no move)
+ABORT by SET</td><td>Stopped before the car moved. Under the rules, no run occurred.</td><td>Fix the cause and run again</td></tr>
+        <tr><td class="lcd-cell">NO COUNTS
+ask ES: moved?</td><td>The motor drove but the encoder saw almost nothing, so the car can't tell whether it moved</td><td>Ask the supervisor if it counts as a run; check the encoder</td></tr>
+        <tr><td class="lcd-cell">ABORT no motion</td><td>No encoder count for 0.5 s while driving, even after a re-kick</td><td>Encoder unplugged, or the car stuck: check both</td></tr>
+        <tr><td class="lcd-cell">ABORT stall</td><td>Less than 1 cm of progress in 2 s</td><td>Car stuck, or batteries low</td></tr>
+        <tr><td class="lcd-cell">ABORT wrong way</td><td>Moved 3 cm against the direction it should go</td><td>Encoder sign or motor leads reversed</td></tr>
+        <tr><td class="lcd-cell">ABORT timeout</td><td>Ran far longer than planned</td><td>Check <code>M_PER_COUNT</code></td></tr>
+        <tr><td class="lcd-cell">F +1.2cm IMU!</td><td>Heading dropped mid-run; it finished on the encoder alone</td><td>Check the IMU wiring before the next run</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="page-break">
+  <div class="section-head">
+    <p class="kicker">Reference</p>
+    <h2>How the car runs</h2>
+  </div>
+  <p>Every position is the rear MP's distance from the Start, along the centerline. Core 1 tracks position and heading 500 times a second. Core 0 runs the sequence and decides speed and steering every 2 ms.</p>
+  <pre class="formula">contact = bottle − bottle radius − L_P       pusher reaches the bottle
+xF      = D + B + 5 cm + BtlOfs − L_P       forward stop: bottle's near side 5 cm past the line
+xFinal  = D + MPofs                         final stop: rear MP on the Target
+delay   = T − estimated driving time        the car waits this long, then drives</pre>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Stage</th><th>What happens</th><th>Speed</th></tr></thead>
+      <tbody>
+        <tr><td><b>START</b></td><td>Run Time starts. Distance and heading are zeroed.</td><td>—</td></tr>
+        <tr><td><b>DELAY</b></td><td>Stands still, counting down</td><td>0</td></tr>
+        <tr><td><b>CRUISE</b></td><td>Drives toward the bottle on the centerline</td><td>0.6 m/s, up to 1.6</td></tr>
+        <tr><td><b>CAPTURE</b></td><td>The last 15 cm before the bottle and first contact</td><td>0.2 m/s</td></tr>
+        <tr><td><b>PUSH</b></td><td>Pushes, then eases to a stop at xF so the bottle stays seated</td><td>0.6 m/s, up to 1.5; ends at 0.06</td></tr>
+        <tr><td><b>TURN</b></td><td>Motor braked, wheels held still</td><td>0 for 0.4 s</td></tr>
+        <tr><td><b>REVERSE</b></td><td>Backs up toward the Target</td><td>0.35 m/s, up to 0.8; ends at 0.05</td></tr>
+        <tr><td><b>STOP</b></td><td>Brakes at xFinal and holds, wheels still, until the next run</td><td>0</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Speeds above the first figure are used only when the run would otherwise finish late. Capture speed never changes.</p>
+</section>
+
+<section>
+  <div class="section-head">
+    <p class="kicker">Reference</p>
+    <h2>Every 2 ms</h2>
+  </div>
+  <div class="grid4">
+    <div><h3>Position</h3><p>Net encoder distance: forward counts minus backward counts, each with its own scale. It triggers every stage change and both stops.</p></div>
+    <div><h3>Speed</h3><p>Target speed for the stage, with acceleration limits. A feedback loop compares it with the measured speed and sets the motor PWM. A short kick gets the car moving. It never drives against the leg.</p></div>
+    <div><h3>Steering</h3><p>The law chosen in <code>config.h</code> §4 (below). If the heading is lost, the wheels go straight and the car finishes on the encoder.</p></div>
+    <div><h3>Checks</h3><p>SET, the timeout, encoder alive, progress, direction, and heading health (safety table below).</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <p class="kicker">Reference</p>
+    <h2>Steering laws</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Leg</th><th>Setting</th><th>Options</th></tr></thead>
+      <tbody>
+        <tr><td>Forward</td><td><code>STEER_FWD_LAW</code></td><td><b>Stanley</b> (default): lines up quickly, two gains. <b>PurePursuit</b>: aims 0.8 m ahead, smoother, one knob.</td></tr>
+        <tr><td>Reverse</td><td><code>STEER_REV_LAW</code></td><td><b>AimAtTarget</b> (default): rear points at the Target; wheels freeze for the last 15 cm. <b>PurePursuit</b>: aims 0.8 m behind, steers to the stop. <b>Stanley</b>: forward Stanley adapted for reverse.</td></tr>
+        <tr><td>All Stanley</td><td colspan="2"><code>SteerLaw::Stanley</code> + <code>RevSteerLaw::Stanley</code>. No wheelbase needed.</td></tr>
+        <tr><td>All pure pursuit</td><td colspan="2"><code>SteerLaw::PurePursuit</code> + <code>RevSteerLaw::PurePursuit</code>. Needs <code>WHEELBASE_L_M</code>, shorter than the 0.8 m lookahead.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <p class="kicker">Reference</p>
+    <h2>Safety checks</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Problem</th><th>What the car does</th></tr></thead>
+      <tbody>
+        <tr><td>SET pressed</td><td>Brakes against its motion, then holds</td></tr>
+        <tr><td>Stuck for 0.15 s (no encoder counts)</td><td>Re-applies the stiction kick</td></tr>
+        <tr><td>Still no encoder count after 0.5 s</td><td>Aborts and holds</td></tr>
+        <tr><td>Less than 1 cm of progress in 2 s</td><td>Aborts and holds</td></tr>
+        <tr><td>3 cm the wrong way</td><td>Aborts and holds, with no counter-pulse</td></tr>
+        <tr><td>Far past the planned time</td><td>Aborts and holds</td></tr>
+        <tr><td>Heading lost, or the IMU resets</td><td>Wheels straight; finishes on the encoder</td></tr>
+        <tr><td>A §1 calibration value still 0</td><td>Refuses to arm</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <p class="kicker">Fill in · bench</p>
+    <h2>Calibration record</h2>
+  </div>
+  <p>Do these in order; each step depends on the ones before it. Put each value in <code>src/config.h</code>, rebuild and reflash. Open the bench menu by holding SET at power-on, or for 2 s at <b>EV ready</b>.</p>
+  <ul class="menu" aria-label="Bench menu">
+    <li>1 Encoder read</li><li>2 Motor test</li><li>3 Servo jog</li><li>4 PWM-&gt;speed</li>
+    <li>5 Input test</li><li>6 IMU heading</li><li>7 Steer response</li><li>8 Exit to run</li>
+  </ul>
+  <div class="table-wrap">
+    <table class="cal">
+      <thead><tr><th></th><th>Constant</th><th>How</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td><code>ENCODER_SIGN</code></td><td>Menu 1: push the car forward; <b>F</b> must go up</td><td class="value"><span class="box" aria-hidden="true"></span> ok</td></tr>
+        <tr><td class="num">2</td><td><code>M_PER_COUNT</code></td><td>Menu 1: push 5.000 m forward. Average 3–5 rolls. This one matters most: it scales the whole forward leg.</td><td class="value"></td></tr>
+        <tr><td class="num">3</td><td><code>M_PER_COUNT_REV</code></td><td>Menu 1: pull 5.000 m back</td><td class="value"></td></tr>
+        <tr><td class="num">4</td><td><code>L_P_M</code></td><td>Tape: pusher contact face to the rear MP tip</td><td class="value"></td></tr>
+        <tr><td class="num">5</td><td><code>ENC_FROM_MP_M</code></td><td>Tape: encoder wheel's floor contact to the rear MP tip</td><td class="value"></td></tr>
+        <tr><td class="num">6</td><td><code>SERVO_CENTER_US</code></td><td>Menu 3, horn off the link: wheels dead straight</td><td class="value"></td></tr>
+        <tr><td class="num">7</td><td><code>SERVO_US_PER_RAD</code></td><td>Menu 3: µs moved ÷ beam angle in radians (expect ~3500)</td><td class="value"></td></tr>
+        <tr><td class="num">8</td><td><code>HEADING_SIGN</code></td><td>Menu 6: turn the car left; heading must go up</td><td class="value"><span class="box" aria-hidden="true"></span> ok</td></tr>
+        <tr><td class="num">9</td><td><code>STEER_DIR_SIGN</code></td><td>Menu 7, FWD: turn the car left; wheels must steer right. REV: wheels left.</td><td class="value"><span class="box" aria-hidden="true"></span> ok</td></tr>
+        <tr><td class="num">10</td><td><code>DIAL_DIR_SIGN</code></td><td>Turn the dial clockwise; the value must go up</td><td class="value"><span class="box" aria-hidden="true"></span> ok</td></tr>
+        <tr><td class="num">11</td><td><code>KICK_PWM</code></td><td>Menu 2: comfortably above the lowest duty that moves the car, both ways</td><td class="value"></td></tr>
+        <tr><td class="num">12</td><td><code>SPEED_FF_OFFSET_PCT</code><br><code>SPEED_FF_PCT_PER_MPS</code></td><td>Menu 4: straight line through PWM vs speed, forward and reverse</td><td class="value"></td></tr>
+        <tr><td class="num">13</td><td><code>WHEELBASE_L_M</code></td><td>Tape, axle centre to axle centre. Pure pursuit only.</td><td class="value"></td></tr>
+        <tr><td class="num">14</td><td><code>T_BIAS_S</code></td><td>After several full runs: serial prints "T_BIAS_S would be …"; average it</td><td class="value"></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Keep the wheels off the ground for the first motor tests. SET is the kill switch.</p>
+</section>
+
+<footer>
+  <span>Details: <code>docs/OPERATING_GUIDE.md</code>. Rules: <code>docs/rules/EV_Rules_2027.pdf</code>; the official rules win.</span>
+  <span>Firmware of 19 Oct 2026</span>
+</footer>
+
+</main>
+</body>
+</html>

@@ -15,8 +15,11 @@ static constexpr uint8_t BL = 0x08;  // backlight bit (kept on)
 static constexpr uint8_t EN = 0x04;  // enable strobe
 static constexpr uint8_t RS = 0x01;  // register select (1 = data)
 
+// Bounded, never blocking: a backpack cable shaken half-loose can hold SCL low,
+// and i2c_write_blocking would then never return — freezing core0 mid-run (no
+// launch, and SET no longer polled). A failed byte just garbles the display.
 static void busWrite(uint8_t b) {
-  i2c_write_blocking(s_i2c, ADDR, &b, 1, false);
+  i2c_write_timeout_us(s_i2c, ADDR, &b, 1, false, LCD_I2C_TIMEOUT_US);
 }
 
 static void pulse(uint8_t data) {
@@ -47,7 +50,7 @@ bool lcdProbe() {
   // read is the safe probe: it cannot alter a device the way a write might.
   for (uint8_t a = 0x08; a < 0x78; a++) {
     uint8_t rx = 0;
-    if (i2c_read_blocking(s_i2c, a, &rx, 1, false) >= 0) {
+    if (i2c_read_timeout_us(s_i2c, a, &rx, 1, false, LCD_I2C_TIMEOUT_US) >= 0) {   // bounded: a stuck bus must not hang boot
       found++;
       const bool isCfg = (a == LCD_I2C_ADDR);
       if (isCfg) atConfigured = true;

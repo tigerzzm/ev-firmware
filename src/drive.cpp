@@ -1,6 +1,8 @@
 #include "drive.h"
 #include "config.h"
+#include "odo.h"
 #include "hardware/gpio.h"
+#include "pico/stdlib.h"
 #include "hardware/pwm.h"
 #include <algorithm>
 #include <cstdint>
@@ -56,15 +58,44 @@ void driveReverse(float pwmPercent) {
   pwm_set_chan_level(s_lpwmSlice, s_lpwmChan, pctToLevel(pwmPercent));
 }
 
-void driveBrake() {
-  // Active brake: drive the reverse half against the car's motion. Callers pulse
-  // this for BRAKE_PULSE_MS then driveCoast(). (Bench-tune the level for a dead
-  // stop — too hard and gearbox inertia can roll the car back off the target.)
-  driveReverse(BRAKE_PWM);
-}
-
 void driveCoast() {
   pwm_set_chan_level(s_rpwmSlice, s_rpwmChan, 0);
   pwm_set_chan_level(s_lpwmSlice, s_lpwmChan, 0);
   enableBridges(false);
+}
+
+void driveHold() {
+  pwm_set_chan_level(s_rpwmSlice, s_rpwmChan, 0);
+  pwm_set_chan_level(s_lpwmSlice, s_lpwmChan, 0);
+  enableBridges(true);
+}
+
+void driveBrakeToStop(float pwmPercent, uint32_t maxMs) {
+  // Brake first (both low-side FETs on), THEN look: one poll of the encoder shows
+  // which way the car is still going, if at all. Measuring here rather than in
+  // each caller means no caller can aim the counter-pulse the wrong way.
+  driveHold();
+  if (pwmPercent <= 0.0f) return;
+  long last = odoCountSigned();
+  sleep_ms(BRAKE_POLL_MS);
+  long c = odoCountSigned();
+  // Moving = more than a few counts in the poll. One or two counts is edge jitter
+  // or the last bit of roll the hold is already stopping; a counter-pulse then
+  // would shove a car that has stopped.
+  const long moved = c - last;
+  const int dir = (moved > BRAKE_MOVING_COUNTS) ? +1 : (moved < -BRAKE_MOVING_COUNTS) ? -1 : 0;
+  if (dir == 0) return;                      // stopped (or nearly): the hold is enough
+
+  if (dir > 0) driveReverse(pwmPercent); else driveForward(pwmPercent);
+  const uint32_t t0 = to_ms_since_boot(get_absolute_time());
+  last = c;
+  while (to_ms_since_boot(get_absolute_time()) - t0 < maxMs) {
+    sleep_ms(BRAKE_POLL_MS);
+    c = odoCountSigned();
+    // End on the FIRST poll with no progress in `dir` (or with motion the other
+    // way). Waiting longer keeps counter-driving a car that has already stopped.
+    if ((c - last) * dir <= 0) break;
+    last = c;
+  }
+  driveHold();
 }

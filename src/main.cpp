@@ -1,5 +1,5 @@
 //==============================================================================
-// EV firmware entry point (Raspberry Pi Pico 2 / RP2350).
+// EV firmware entry point (Raspberry Pi Pico, RP2040) — 2027 bottle task.
 //
 // Two-core split (mirrors robotour-pico's structure):
 //   core1 = pose estimator, run at the control tick (poseUpdate).
@@ -12,7 +12,6 @@
 #include "odo.h"
 #include "pose.h"
 #include "sm.h"
-#include "speed.h"
 #include "steer.h"
 #include "ui.h"
 
@@ -62,7 +61,6 @@ int main() {
   sleep_ms(1500);   // let USB CDC enumerate before the first prints
   printf("=== EV firmware boot (%s) ===\n", PICO_BOARD);
 
-  speedInit();
   uiInit();
   odoInit();
   poseInit();
@@ -70,9 +68,8 @@ int main() {
   // Launch core1 EARLY. poseUpdate() returns immediately while the estimator is
   // inactive, so until ARM this thread does nothing but blink the heartbeat —
   // and that is precisely when you need it. Launching after imuInit() meant no
-  // heartbeat during calibration mode, and none during the IMU-failure halt,
-  // i.e. a dark LED in both situations where "is the board alive?" is the
-  // question being asked.
+  // heartbeat during calibration mode, i.e. a dark LED exactly when "is the board
+  // alive?" is the question being asked.
   multicore_launch_core1(estimatorCore1);
 
   // Sample the button BEFORE imuInit(), which takes a few seconds with its retries
@@ -80,26 +77,21 @@ int main() {
   const bool wantCal = uiSetPressed();
   if (wantCal) printf("[MAIN] SET held at boot -> calibration mode after IMU init\n");
 
-  // Always attempt the IMU, even when heading is not needed. Doing it before the
-  // calibration menu is what makes the IMU-heading screen usable from BOTH entry
-  // routes (SET at power-on, and the long-press from "EV ready"). Failure is not
-  // fatal here — only a real run needs heading, so the halt is deferred.
+  // Always attempt the IMU before the calibration menu, so the IMU-heading screen
+  // works from BOTH entry routes (SET at power-on, and the long-press from
+  // "EV ready"). Failure is not fatal: a run without heading drives with the servo
+  // centred (encoder only). That still scores; a Failed Run scores 2500.
   const bool imuOk = imuInit();
   if (!imuOk) {
-    printf("WARNING: IMU init failed. Bench calibration still available;\n");
-    printf("         a RUN is not — check I2C wiring / pull-ups.\n");
+    printf("WARNING: IMU init failed — check I2C wiring / pull-ups.\n");
+    printf("         Runs will be encoder-only with the steering centred.\n");
   }
 
   if (wantCal) {
     calMenu();                      // returns via "Exit to run"
   }
 
-  if (!imuOk) {
-    printf("FATAL: cannot run without heading — halting.\n");
-    while (true) { uiShow("IMU FAIL", "hold SET=cal"); sleep_ms(1000); }
-  }
-
   // State machine owns the run sequence forever.
-  smRun();
+  smRun(imuOk);
   return 0;
 }

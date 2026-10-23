@@ -1,27 +1,43 @@
 #pragma once
 //==============================================================================
-// speed — longitudinal control (hit the target TIME), DECOUPLED from the stop.
+// speed — longitudinal control. Pure math (no hardware), tested in host_check.
 //
-// Design intent (EV_Design_Review + EV_Detailed_Design §6.3): pick a cruise
-// speed from target time, follow a trapezoid, and OPTIONALLY close a speed loop
-// on the free-roller's ground speed with the harvested MotorController.
+// Two parts:
+//   1. Speed PROFILES: target ground speed as a function of MP position, one per
+//      leg. Decel ramps are v = sqrt(v_end^2 + 2*a*distance_left), i.e. constant
+//      deceleration, which is exactly what plan.cpp's time model assumes.
+//   2. SpeedLoop: feedforward + PI on the free roller's measured speed. Output is
+//      a PWM MAGNITUDE for the commanded direction — never negative — so a forward
+//      leg can slow to zero drive but can never be driven backward (§8.r.i).
 //
-// Deliberately does NOT copy robotour's continuous "RPM = revs_left/time_left"
-// scheme — robotour couples distance and time; the EV wants them separate.
-//
-// The PWM<->speed table is empty until you calibrate it (config/bench).
+// Time is NOT this module's job any more: the start delay (plan.cpp) absorbs it.
 //==============================================================================
+#include "plan.h"
 
-void  speedInit();
+// Forward leg target speed (m/s, >= 0) at MP position x: cruise, slow for the
+// capture zone, push, then a gentle constant-decel ramp into xF.
+float speedProfileForward(float x, const RunPlan &p);
 
-// Desired ground speed (m/s) right now, on a trapezoid covering arc length L in
-// time T given current along-path distance s.
-float speedTrapezoid(float s, float L, float T);
+// Reverse leg target speed MAGNITUDE (m/s, >= 0) at MP position x: cruise back,
+// then a constant-decel ramp into xFinal.
+float speedProfileReverse(float x, const RunPlan &p);
 
-// Feedforward-only mapping speed(m/s) -> PWM% from the calibrated table.
-// TODO(bench): fill pwm_for_speed() from measured PWM 30/40/.../100% -> cm/s.
-float pwmForSpeed(float mps);
+// Acceleration limit for a leg segment: the target may RISE no faster than this
+// (falls are already shaped by the profile). Returns the limited target.
+float speedRateLimit(float target, float current, float aUp, float dt);
 
-// Optional closed loop: correct PWM using measured ground speed (free roller).
-// Uses the harvested MotorController internally when enabled.
-float speedControl(float s, float L, float T, float measuredMps);
+class SpeedLoop {
+ public:
+  void  reset();
+  // vTarget: wanted speed magnitude (m/s, >= 0) in the leg's direction.
+  // vAlong:  measured speed along that direction (m/s; negative = going backward
+  //          relative to the leg). Returns PWM %, in [0, PWM_MAX_PCT].
+  // freezeIntegrator: hold the I term (car stuck on stiction; see sm.cpp).
+  float update(float vTarget, float vAlong, float dt, bool freezeIntegrator = false);
+
+ private:
+  float i_ = 0.0f;
+};
+
+// Feedforward map: speed magnitude (m/s) -> PWM %. 0 for a zero target.
+float pwmFeedforward(float v);

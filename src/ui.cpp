@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "config.h"
 #include "lcd.h"
+#include "plan.h"
 #include "hardware/gpio.h"
 #include "pico/stdlib.h"
 #include <algorithm>
@@ -34,20 +35,12 @@ void uiShow(const char *line1, const char *line2) {
 }
 
 // Fixed-width so the old text is always fully overwritten — that is what lets us
-// skip lcdClear(). Deliberately does NOT printf: at 4 Hz that would be a steady
-// stream into a USB CDC pipe that may have nothing draining it. (For real logging
-// use ram_logger.* and dump after the run.)
-void uiShowRun(float distM, float targetM, float speedMps, float elapsedSec) {
-  // Must be padded to the full 16 columns: this deliberately skips lcdClear(),
-  // so anything shorter leaves characters from the previous screen behind.
+// skip lcdClear(). Deliberately does NOT printf: a live screen redraws several
+// times a second, and stdio over USB CDC can block when nothing drains it.
+void uiShowLive(const char *line1, const char *line2) {
   char l0[17], l1[17];
-  snprintf(l0, sizeof l0, "%-16s", "");
-  snprintf(l1, sizeof l1, "%-16s", "");
-  char a[17], b[17];
-  snprintf(a, sizeof a, "%5.2f/%5.2f m", (double)distM, (double)targetM);
-  snprintf(b, sizeof b, "v%4.2f  t%5.1fs", (double)speedMps, (double)elapsedSec);
-  snprintf(l0, sizeof l0, "%-16s", a);
-  snprintf(l1, sizeof l1, "%-16s", b);
+  snprintf(l0, sizeof l0, "%-16s", line1 ? line1 : "");
+  snprintf(l1, sizeof l1, "%-16s", line2 ? line2 : "");
   lcdPrintAt(0, 0, l0);
   lcdPrintAt(0, 1, l1);
 }
@@ -121,6 +114,7 @@ static float enterValue(const char *label, const char *unit, float value,
     if (uiStartPressed()) {                    // confirm
       sleep_ms(50);
       while (uiStartPressed()) sleep_ms(5);
+      sleep_ms(BUTTON_RELEASE_SETTLE_MS);
       return value;
     }
     sleep_ms(2);
@@ -159,7 +153,7 @@ static float enterValue(const char *label, const char *unit, float value,
     bool st = gpio_get(SET_BTN_PIN);
     if (lastSet && !st) {
       sleep_ms(50);
-      while (!gpio_get(SET_BTN_PIN)) sleep_ms(5); // wait for release
+      uiWaitSetRelease();
       return value;
     }
     lastSet = st;
@@ -170,43 +164,70 @@ static float enterValue(const char *label, const char *unit, float value,
 #endif  // USE_DIAL_ENTRY
 
 // --- public entry points -----------------------------------------------------
-float uiEnterDistanceM() {
-  static const float incs[] = {1.0f, 0.5f, 0.1f, 0.01f};
-  return enterValue("Dist:", "m", 8.00f, TARGET_DIST_MIN_M, TARGET_DIST_MAX_M,
-                    incs, 4, 2);
+// Increments start at the regional interval (0.25 m), the coarsest legal step for
+// D and B (§8.h, §8.j); DialBtn cycles to finer ones for state and nationals.
+static constexpr int N_STEPS_M = sizeof ENTRY_STEPS_M / sizeof ENTRY_STEPS_M[0];
+static constexpr int N_STEPS_S = sizeof ENTRY_STEPS_S / sizeof ENTRY_STEPS_S[0];
+
+float uiEnterDistanceM(float current) {
+  return enterValue("D:", "m", std::clamp(current, TARGET_DIST_MIN_M, TARGET_DIST_MAX_M),
+                    TARGET_DIST_MIN_M, TARGET_DIST_MAX_M, ENTRY_STEPS_M, N_STEPS_M, 2);
 }
 
-float uiEnterTimeS() {
-  static const float incs[] = {1.0f, 0.5f, 0.1f};
-  return enterValue("Time:", "s", 15.0f, TARGET_TIME_MIN_S, TARGET_TIME_MAX_S,
-                    incs, 3, 1);
+float uiEnterBottleLineM(float current) {
+  return enterValue("B:", "m", std::clamp(current, BOTTLE_LINE_MIN_M, BOTTLE_LINE_MAX_M),
+                    BOTTLE_LINE_MIN_M, BOTTLE_LINE_MAX_M, ENTRY_STEPS_M, N_STEPS_M, 2);
 }
 
-float uiEnterStopOffsetM(float current) {
-  // mm-level resolution: scoring is 2 pt/cm, so 0.001 m steps are finer than the
-  // scoring granularity and 0.01 m gets you there fast.
+float uiEnterTimeS(float current) {
+  return enterValue("T:", "s", std::clamp(current, TARGET_TIME_MIN_S, TARGET_TIME_MAX_S),
+                    TARGET_TIME_MIN_S, TARGET_TIME_MAX_S, ENTRY_STEPS_S, N_STEPS_S, 1);
+}
+
+int uiSelectLevel(int current) {
+  // Labels are built from config.h §5, so they can't drift from what the plan
+  // actually uses if the rules move the bottle.
+  static char labels[3][17];
+  static const char *names[] = {"Regional", "State", "National"};
+  static const char *items[3];
+  for (int i = 0; i < 3; i++) {
+    snprintf(labels[i], sizeof labels[i], "%s %.1fm", names[i], (double)bottleXForLevel(i));
+    items[i] = labels[i];
+  }
+  return uiMenuSelect("Bottle level", items, 3, std::clamp(current, 0, 2));
+}
+
+float uiEnterOffsetM(const char *label, float current) {
+  // mm-level resolution: the vehicle term is 2 pt/cm, so 0.001 m steps are finer
+  // than the scoring granularity and 0.01 m gets you there fast.
   static const float incs[] = {0.010f, 0.001f, 0.050f};
-  return enterValue("Ofs:", "m", current, STOP_OFFSET_MIN_M, STOP_OFFSET_MAX_M,
-                    incs, 3, 3);
+  return enterValue(label, "m", std::clamp(current, STOP_OFFSET_MIN_M, STOP_OFFSET_MAX_M),
+                    STOP_OFFSET_MIN_M, STOP_OFFSET_MAX_M, incs, 3, 3);
 }
 
-// Public wrapper over the file-static decoder, carrying its own edge state so a
-// caller can drive an interactive loop without owning the CLK history.
+// The CLK history for uiRotaryStep(). Re-seeded from the ACTUAL pin whenever a
+// screen starts using the dial (uiRotaryResync): the value entry screens keep their
+// own history, so after the dial turns there this one is stale, and a stale "high"
+// with CLK now low reads as a phantom detent — a menu jumping one item (the bottle
+// level!) or the servo stepping once, the moment the screen opens.
+static uint8_t s_rotaryLastClk = 1;
+
+void uiRotaryResync() { s_rotaryLastClk = gpio_get(DIAL_CLK_PIN); }
+
 int uiRotaryStep() {
-  // Seed from the ACTUAL pin on first use. Assuming "high" meant that if CLK
-  // happened to be low at that moment, the first call saw a phantom falling edge
-  // and emitted a spurious detent — a menu jumping one item, or the servo
-  // stepping once, immediately on entering a screen.
-  static bool    seeded  = false;
-  static uint8_t lastClk = 1;
-  if (!seeded) { lastClk = gpio_get(DIAL_CLK_PIN); seeded = true; }
-  return rotaryStep(lastClk);
+  return rotaryStep(s_rotaryLastClk);
+}
+
+void uiWaitSetRelease() {
+  while (uiSetPressed()) sleep_ms(5);
+  sleep_ms(BUTTON_RELEASE_SETTLE_MS);       // a release bounce is not a new press
 }
 
 bool uiDialPressed() { return !gpio_get(DIAL_BTN_PIN); }
 
-int uiMenuSelect(const char *title, const char *const *items, int n) {
-  int  idx     = 0;
+int uiMenuSelect(const char *title, const char *const *items, int n, int startIdx) {
+  int  idx     = (startIdx >= 0 && startIdx < n) ? startIdx : 0;
+  uiRotaryResync();                         // no phantom detent on opening
   bool lastSet = gpio_get(SET_BTN_PIN);
   auto render  = [&]() {
     lcdClear();
@@ -223,7 +244,7 @@ int uiMenuSelect(const char *title, const char *const *items, int n) {
     bool st = gpio_get(SET_BTN_PIN);
     if (lastSet && !st) {                       // press edge
       sleep_ms(50);
-      while (!gpio_get(SET_BTN_PIN)) sleep_ms(5);
+      uiWaitSetRelease();
       return idx;
     }
     lastSet = st;
@@ -239,6 +260,7 @@ int uiMenuSelect(const char *title, const char *const *items, int n) {
     if (uiStartPressed()) {
       sleep_ms(50);
       while (uiStartPressed()) sleep_ms(5);
+      sleep_ms(BUTTON_RELEASE_SETTLE_MS);
       return idx;
     }
 #endif
@@ -256,14 +278,4 @@ int uiEnterServoUs(int current) {
 float uiEnterPwmPercent(float current) {
   static const float incs[] = {5.0f, 1.0f, 10.0f};
   return enterValue("PWM:", "%", current, CAL_PWM_MIN, CAL_PWM_MAX, incs, 3, 0);
-}
-
-float uiEnterBulgeH() {
-  // Preset from config (matches the kit's fixed arc height). Dial-tunable later
-  // by swapping this for enterValue() over a bulge range.
-  char l1[17];
-  snprintf(l1, sizeof l1, "gate h=%.2fm", GATE_BULGE_H_M);
-  uiShow("Arc preset", l1);
-  sleep_ms(400);
-  return GATE_BULGE_H_M;
 }

@@ -14,24 +14,12 @@ endif()
 # ====================================================================================
 cmake_minimum_required(VERSION 3.13)
 
-# ==== Raspberry Pi Pico VS Code Extension block (safe to keep) ================
-if(WIN32)
-    set(USERHOME $ENV{USERPROFILE})
-else()
-    set(USERHOME $ENV{HOME})
-endif()
-set(sdkVersion 2.1.0)
-set(toolchainVersion 13_3_Rel1)
-set(picotoolVersion 2.1.0)
-set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
-if (EXISTS ${picoVscode})
-    include(${picoVscode})
-endif()
-# =============================================================================
+# (A second, stale copy of the extension block used to sit here, pinning SDK 2.1.0
+# and toolchain 13_3_Rel1. It overrode the extension's own block above, so CMake
+# looked for an SDK that isn't installed and every re-configure failed.)
 
-# Target board: Pico 2 (RP2350). (robotour used "pico" / RP2040.)
-# RP2040 Pico 1. Change to "pico2" for an RP2350 board — the servo PWM divider is
-# derived from clock_get_hz(clk_sys), so nothing else needs touching.
+# Target board: RP2040 Pico 1. Change to "pico2" for an RP2350 board — the servo
+# PWM divider is derived from clock_get_hz(clk_sys), so nothing else needs touching.
 set(PICO_BOARD pico CACHE STRING "Board type")
 
 set(PICO_SDK_FETCH_FROM_GIT on)

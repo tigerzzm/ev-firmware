@@ -5,29 +5,33 @@
 #include "hardware/gpio.h"
 #include <algorithm>
 #include "imu.h"
-#include "path.h"
 #include "pose.h"
 #include "odo.h"
 #include "utils.h"
 #include <cmath>
 #include "steer.h"
+#include "steer_law.h"
 #include "ui.h"
 #include "pico/stdlib.h"
 #include <cstdio>
 
 // Average speed is timed over a fixed DISTANCE rather than read from
 // odoSpeedMps(). Over a 2 m window, distance/time is exact — no filter lag and
-// no quantisation worth worrying about — whereas the filtered estimate would lag
-// by roughly its time constant.
+// no quantisation worth worrying about. Run it in BOTH directions: the reverse
+// leg runs on the same feedforward line (config.h §2), so check they agree.
 void calPwmProbe() {
+  static const char *dirs[] = {"1 Forward", "2 Reverse", "3 Back"};
   float pwm = 30.0f;
 
   printf("\n=== PWM -> speed calibration ===\n");
-  printf("Dial a duty %%, press START. Needs ~3.5 m of clear floor per point.\n");
-  printf("SET aborts a run in progress.\n\n");
+  printf("Pick a direction, dial a duty %%, press START. Needs ~3.5 m of floor.\n");
+  printf("SET aborts a run in progress. Fit PWM = offset + slope*v through the points\n");
+  printf("and enter them as SPEED_FF_OFFSET_PCT / SPEED_FF_PCT_PER_MPS.\n\n");
 
   while (true) {
-    uiShow("PWM->speed cal", "SET to enter");
+    const int choice = uiMenuSelect("PWM->speed", dirs, 3);
+    if (choice == 2) return;
+    const int dir = (choice == 1) ? -1 : +1;
     pwm = uiEnterPwmPercent(pwm);
 
     // The whole measurement is distance-based, so an uncalibrated M_PER_COUNT
@@ -40,46 +44,67 @@ void calPwmProbe() {
     }
 
     char l1[17];
-    snprintf(l1, sizeof l1, "PWM %.0f%% ready", pwm);
-    uiShow(l1, "START to run");
-    while (!uiStartPressed()) sleep_ms(2);
-
-    steerSetAngle(0.0f);        // wheels straight — this is a straight-line test
-    odoZero();
-    odoSpeedReset();
-
-    const uint64_t t0 = to_ms_since_boot(get_absolute_time());
-    uint64_t tA = 0, tB = 0;    // window start/end timestamps
-    bool aborted = false;
-
-    driveForward(pwm);
-    while (true) {
-      const uint64_t now = to_ms_since_boot(get_absolute_time());
-      const float    d   = odoDistanceM();
-      if (tA == 0 && d >= CAL_WARMUP_M) tA = now;                      // launch done
-      if (tA != 0 && d >= CAL_WARMUP_M + CAL_MEASURE_M) { tB = now; break; }
-      if (uiSetPressed())                          { aborted = true; break; }
-      if ((now - t0) / 1000.0f > CAL_TIMEOUT_S)    { aborted = true; break; }
+    snprintf(l1, sizeof l1, "%s %.0f%% ready", dir > 0 ? "FWD" : "REV", pwm);
+    uiShow(l1, "START=go SET=bk");
+    bool backOut = false;
+    while (!uiStartPressed()) {
+      if (uiSetPressed()) { uiWaitSetRelease(); backOut = true; break; }   // wrong choice / floor not clear
       sleep_ms(2);
     }
+    if (backOut) continue;
 
-    driveBrake();
-    sleep_ms(BRAKE_PULSE_MS);
+    steerCenter();              // wheels straight — this is a straight-line test
+    odoZero();
+
+    const uint32_t t0 = to_ms_since_boot(get_absolute_time());
+    uint32_t tA = 0, tB = 0;    // window start/end timestamps
+    bool aborted = false;
+
+    if (dir > 0) driveForward(pwm); else driveReverse(pwm);
+    // The same runaway guards as a run: without them a slipped encoder belt, a
+    // loose connector or a flipped sign (distance never grows the commanded way)
+    // drives on at the dialled duty until CAL_TIMEOUT_S — tens of metres.
+    float    progD  = 0.0f;
+    uint32_t progMs = t0;
+    const char *why = nullptr;
+    HeldButton setHeld;                      // a noise sample must not abort the point
+    while (true) {
+      const uint32_t now = to_ms_since_boot(get_absolute_time());
+      const float    d   = dir * odoDistanceM();     // distance in the run direction
+      if (tA == 0 && d >= CAL_WARMUP_M) tA = now;                      // launch done
+      if (tA != 0 && d >= CAL_WARMUP_M + CAL_MEASURE_M) { tB = now; break; }
+      if (d - progD >= PROGRESS_MIN_M) { progD = d; progMs = now; }
+      if (setHeld.update(uiSetPressed(), now))     { why = "SET";        break; }
+      if (d < -WRONG_WAY_M)                        { why = "wrong way";  break; }
+      // Same window as a run's stall check, not the dead-encoder one: the slow
+      // points just above stiction are the ones that find the dead-zone offset.
+      if (now - progMs > STALL_ABORT_MS)           { why = "no progress"; break; }
+      if ((now - t0) / 1000.0f > CAL_TIMEOUT_S)    { why = "timeout";    break; }
+      sleep_ms(2);
+    }
+    aborted = (why != nullptr);
+
+    // Wrong way usually means a flipped encoder sign or swapped motor leads, and then
+    // "against the measured motion" is the way the car is already going: hold only.
+    const bool wrongWay = why && why[0] == 'w';
+    driveBrakeToStop(wrongWay ? 0.0f : ABORT_BRAKE_PWM, ABORT_BRAKE_MAX_MS);
+    sleep_ms(STOP_SETTLE_MS);
     driveCoast();
 
     if (aborted || tB == 0) {
-      printf("[CAL] pwm=%3.0f%%  ABORTED (travelled %.2f m)\n", pwm, odoDistanceM());
-      uiShow("ABORTED", "check path/PWM");
+      printf("[CAL] %s pwm=%3.0f%%  ABORTED: %s (travelled %.2f m)\n",
+             dir > 0 ? "FWD" : "REV", pwm, why ? why : "?", odoDistanceM());
+      uiShow("ABORTED", why ? why : "check path/PWM");
       sleep_ms(2000);
       continue;
     }
 
     const float dt = (tB - tA) / 1000.0f;
     const float v  = CAL_MEASURE_M / dt;
-    printf("[CAL] pwm=%3.0f%%  v=%.3f m/s   (%.2f m in %.2f s)\n",
-           pwm, v, CAL_MEASURE_M, dt);
+    printf("[CAL] %s pwm=%3.0f%%  v=%.3f m/s   (%.2f m in %.2f s)\n",
+           dir > 0 ? "FWD" : "REV", pwm, v, CAL_MEASURE_M, dt);
     char l2[17];
-    snprintf(l1, sizeof l1, "PWM %.0f%%", pwm);
+    snprintf(l1, sizeof l1, "%s PWM %.0f%%", dir > 0 ? "FWD" : "REV", pwm);
     snprintf(l2, sizeof l2, "%.3f m/s", v);
     uiShow(l1, l2);
     sleep_ms(3000);
@@ -93,7 +118,7 @@ void calPwmProbe() {
 // That single number checks four things at once: the driver responds, the motor
 // turns, it turns the right way, and the encoder counts the right way. Walking
 // the PWM down until the car stops moving also gives you the real dead-zone
-// floor, which is what CREEP_PWM should sit just above.
+// floor; KICK_PWM (config.h §2) should sit comfortably above it in both directions.
 void calMotorTest() {
   static const char *items[] = {"1 Forward", "2 Reverse", "3 Back"};
   float pwm = 20.0f;
@@ -114,7 +139,8 @@ void calMotorTest() {
       sleep_ms(2);
     }
 
-    const long     c0 = odoCountSigned();
+    steerCenter();                            // straight: a run may have left them angled
+    odoZero();                                // so the distance uses the run's own scaling
     const uint64_t t0 = to_ms_since_boot(get_absolute_time());
 
     if (reverse) driveReverse(pwm);
@@ -127,8 +153,9 @@ void calMotorTest() {
     driveCoast();                             // coast, don't brake — we want to
     sleep_ms(400);                            // see how far it actually rolled
 
-    const long  dc = odoCountSigned() - c0;
-    const float dm = (float)dc * M_PER_COUNT;
+    const DirSplit snap = odoSnapshot();     // one sample for both numbers
+    const long  dc = snap.net();
+    const float dm = snap.metres(M_PER_COUNT, M_PER_COUNT_REV_EFF);
     printf("[MOT] %s pwm=%3.0f%%  counts=%+ld  dist=%+.3f m%s\n",
            reverse ? "REV" : "FWD", pwm, dc, dm,
            (dc == 0) ? "   <-- NO MOVEMENT" : "");
@@ -147,6 +174,12 @@ void calMotorTest() {
 // true centre before fitting the horn, to walk out to the mechanical limits, and
 // to measure beam angle against pulse width (that ratio IS SERVO_US_PER_RAD).
 void calServoTest() {
+  uiRotaryResync();                         // no phantom first step
+  // Jog only inside the window steerWriteUs() really sends (the travel limit, then
+  // the electrical range). Showing a pulse width beyond it would make the
+  // SERVO_US_PER_RAD measurement divide by an offset the servo never got.
+  const int jogLo = std::max(SERVO_MIN_US, SERVO_TRAVEL_US > 0 ? SERVO_CENTER_US - SERVO_TRAVEL_US : SERVO_MIN_US);
+  const int jogHi = std::min(SERVO_MAX_US, SERVO_TRAVEL_US > 0 ? SERVO_CENTER_US + SERVO_TRAVEL_US : SERVO_MAX_US);
   int us = SERVO_CENTER_US;
   int incIdx = 0;
   static const int incs[] = {10, 1, 100};
@@ -177,7 +210,7 @@ void calServoTest() {
   while (true) {
     const int step = uiRotaryStep();
     if (step != 0) {
-      us = std::clamp(us + step * incs[incIdx], SERVO_MIN_US, SERVO_MAX_US);
+      us = std::clamp(us + step * incs[incIdx], jogLo, jogHi);
       steerWriteUs(us);
       render();
     }
@@ -193,7 +226,7 @@ void calServoTest() {
     const bool st = uiSetPressed();
     if (!lastSet && st) {                       // press edge
       sleep_ms(50);
-      while (uiSetPressed()) sleep_ms(5);       // wait for release
+      uiWaitSetRelease();
       steerWriteUs(SERVO_CENTER_US);            // leave it centred
       printf("[SRV] exit — returned to centre %d us\n", SERVO_CENTER_US);
       return;
@@ -224,7 +257,7 @@ void calServoTest() {
     lastSet = sp;
     if (bump) {
       us += incs[incIdx];
-      if (us > SERVO_MAX_US) us = SERVO_MIN_US;    // wrap
+      if (us > jogHi) us = jogLo;                  // wrap
       steerWriteUs(us);
       render();
     }
@@ -251,56 +284,58 @@ void calServoTest() {
 //==============================================================================
 // Live encoder readout
 //==============================================================================
-// Deliberately does its own zero-tracking rather than using odoDistanceM(), which
-// reads 0 while M_PER_COUNT is uncalibrated — the exact situation this mode
-// exists to fix.
+// Reads raw counts rather than odoDistanceM(), which reads 0 while M_PER_COUNT is
+// uncalibrated — the exact situation this mode exists to fix. Forward and reverse
+// counts are shown separately: push the car 5.000 m FORWARD for M_PER_COUNT, then
+// pull it 5.000 m BACK for M_PER_COUNT_REV.
 void calEncoderReadout() {
   printf("\n=== Encoder readout ===\n");
-  printf("START zeroes the count, SET exits.\n");
-  printf("To calibrate: zero, push the car a MEASURED distance, read the count.\n\n");
+  printf("START zeroes the counts, SET exits.\n");
+  printf("START at the start mark, push %.3f m forward -> M_PER_COUNT.\n", (double)CAL_REF_LENGTH_M);
+  printf("START again at the far mark, pull %.3f m back -> M_PER_COUNT_REV.\n\n", (double)CAL_REF_LENGTH_M);
 
-  long c0   = odoCountSigned();
-  long last = c0 + 1;              // force a first render
+  odoZero();
+  long lastF = -1, lastR = 1, lastN = 1;
   int  lastAB = -1;
   bool lastStart = uiStartPressed();
   bool lastSet   = uiSetPressed();
 
   while (true) {
-    const long c  = odoCountSigned();
-    const long dc = c - c0;
+    const DirSplit snap = odoSnapshot();   // one sample, so f, r and n agree
+    const long f = snap.fwd;
+    const long r = snap.rev;
+    const long n = snap.net();
     // Raw A/B levels. gpio_get() reads the pad input regardless of the pin being
-    // under PIO control, so this shows the wires even when the PIO isn't counting
-    // — which distinguishes "encoder dead" from "decoder not working".
+    // under PIO control, so this distinguishes "encoder dead" from "decoder not
+    // working".
     const int a  = gpio_get(FRONT_ENCODER_A_PIN) ? 1 : 0;
     const int b  = gpio_get(FRONT_ENCODER_B_PIN) ? 1 : 0;
     const int ab = (a << 1) | b;
 
-    if (dc != last || ab != lastAB) {
-      last = dc; lastAB = ab;
+    if (f != lastF || r != lastR || n != lastN || ab != lastAB) {
+      lastF = f; lastR = r; lastN = n; lastAB = ab;
       char l1[17], l2[17];
-      snprintf(l1, sizeof l1, "cnt %+ld", dc);
-      if (M_PER_COUNT > 0.0f)
-        snprintf(l2, sizeof l2, "A%d B%d %+.3fm", a, b, (double)((float)dc * M_PER_COUNT));
-      else
-        snprintf(l2, sizeof l2, "A%d B%d  cal=0", a, b);
+      snprintf(l1, sizeof l1, "F%+ld R%+ld", f, r);
+      snprintf(l2, sizeof l2, "A%d B%d net%+ld", a, b, n);
       lcdClear(); lcdPrintAt(0, 0, l1); lcdPrintAt(0, 1, l2);
-      // Print the constant a 5.000 m reference roll would imply — scale it
-      // yourself if you used a different reference length.
-      if (dc != 0) {
-        printf("[ENC] A=%d B=%d  counts=%+ld   M_PER_COUNT if this was 5.000 m = %.8f\n",
-               a, b, dc, 5.0f / (float)(dc < 0 ? -dc : dc));
-      } else {
-        printf("[ENC] A=%d B=%d  counts=%+ld\n", a, b, dc);
-      }
+      printf("[ENC] A=%d B=%d  fwd=%+ld  rev=%+ld  net=%+ld", a, b, f, r, n);
+      // Calibrate on the NET count since the last zero, never on fwd or rev alone:
+      // any back-and-forth during the hand push (overshooting the mark and easing
+      // back) adds the same counts to BOTH, which would bias both constants low.
+      if (n > 0) printf("   if this was %.3f m forward: M_PER_COUNT=%.8f",
+                        (double)CAL_REF_LENGTH_M, CAL_REF_LENGTH_M / (float)n);
+      if (n < 0) printf("   if this was %.3f m back: M_PER_COUNT_REV=%.8f",
+                        (double)CAL_REF_LENGTH_M, CAL_REF_LENGTH_M / (float)(-n));
+      printf("\n");
     }
 
     const bool sp = uiStartPressed();
-    if (!lastStart && sp) { c0 = odoCountSigned(); last = c0 + 1; }   // press edge = zero
+    if (!lastStart && sp) { odoZero(); lastF = -1; }   // press edge = zero
     lastStart = sp;
 
     const bool st = uiSetPressed();
     if (!lastSet && st) {
-      while (uiSetPressed()) sleep_ms(5);
+      uiWaitSetRelease();
       return;
     }
     lastSet = st;
@@ -362,7 +397,7 @@ void calImuTest() {
   printf("\n=== IMU heading ===\n");
   // Do NOT gate entry on imuHealthy(). That flag is a FRESHNESS check — it only
   // stays true while something keeps calling imuYawDeg(), and in this menu nothing
-  // does, so it goes stale after IMU_TIMEOUT_MS and reads false on a perfectly
+  // does, so it goes stale after IMU_STALE_MS and reads false on a perfectly
   // healthy chip. Prime it with a few polls, then just display the live state and
   // let the reader judge.
   uiShow("IMU heading", "priming...");
@@ -373,8 +408,9 @@ void calImuTest() {
   if (!imuHealthy()) {
     printf("[IMU] still not streaming after priming — check I2C wiring.\n");
   }
-  printf("Turn the car LEFT by hand: 'rel' must INCREASE.\n");
-  printf("If it decreases, flip HEADING_SIGN in config.h §3.\n");
+  printf("Turn the car LEFT by hand: 'rel' must INCREASE. 'rel' is the heading as\n");
+  printf("the run sees it (HEADING_SIGN applied), so after a flip and a rebuild this\n");
+  printf("screen confirms it. If it decreases, flip HEADING_SIGN in config.h §3.\n");
   printf("START zeroes the reference, SET exits.\n\n");
 
   float zero = (float)imuYawDeg();
@@ -384,8 +420,10 @@ void calImuTest() {
   while (true) {
     const float yaw = (float)imuYawDeg();
     // Relative to the captured zero, wrapped to +/-180 so it reads naturally
-    // rather than jumping 359 -> 0 as you rotate through the wrap point.
-    const float rel = (float)utils::angleError(yaw, zero, false);
+    // rather than jumping 359 -> 0 as you rotate through the wrap point, and with
+    // HEADING_SIGN applied exactly as pose.cpp does — otherwise a flip could never
+    // be confirmed here.
+    const float rel = (float)(HEADING_SIGN * utils::angleError(yaw, zero, false));
 
     if (std::fabs(rel - lastShown) > 0.2f) {
       lastShown = rel;
@@ -402,7 +440,7 @@ void calImuTest() {
     lastStart = sp;
 
     const bool st = uiSetPressed();
-    if (!lastSet && st) { while (uiSetPressed()) sleep_ms(5); return; }
+    if (!lastSet && st) { uiWaitSetRelease(); return; }
     lastSet = st;
 
     sleep_ms(30);
@@ -413,18 +451,39 @@ void calImuTest() {
 //==============================================================================
 // Steering response test
 //==============================================================================
-// Rotating the car in place is enough to exercise this: theta changes even when
-// ds is zero, so the heading term responds without the car going anywhere.
+// Runs the REAL control laws (steer_law.cpp) against the live pose and drives the
+// servo, so you can rotate or slide the car by hand and watch it react. Rotating
+// in place is enough: theta changes even when the car doesn't roll.
+//   FWD mode: turn the car LEFT  -> wheels must steer RIGHT (back to the line).
+//   REV mode: turn the car LEFT  -> wheels must steer LEFT. (In reverse a left
+//             wheel turns the car right, back toward the aim.) The target sits
+//             CAL_STEER_REV_TARGET_M behind the MP's position at the last zero.
+// Rotating in place, both modes depend only on HEADING_SIGN x STEER_DIR_SIGN, so
+// they flip TOGETHER and cannot tell those two signs apart. Verify HEADING_SIGN
+// first with "6 IMU heading"; then a wrong FWD means STEER_DIR_SIGN. FWD right but
+// REV wrong is not a sign problem at all — it points at the reverse law or the
+// rear geometry (ENC_FROM_MP_M, or WHEELBASE_L_M for pure pursuit), so don't flip
+// anything to "fix" it. Each mode runs the law config.h selects for that leg, and
+// the LCD names it: FWD STAN / FWD PP, REV AIM / REV PP / REV STAN.
+// DialBtn toggles FWD/REV, START re-zeroes, SET exits.
 void calSteerTest() {
+  // Without these the servo can't move (or pure pursuit computes 0), so the sign
+  // check would show nothing and blame nothing. Name the missing value instead.
+  // (M_PER_COUNT too: the cross-track term needs real distances.)
+  const char *missing = steeringCalibrationMissing();   // not L_P_M: no pusher needed
+  if (missing) {
+    printf("[STR] can't run the steer test: %s (config.h §1)\n", missing);
+    uiShow("NOT CALIBRATED", missing);
+    sleep_ms(UI_MSG_MS);
+    return;
+  }
   printf("\n=== Steering response ===\n");
-  printf("Rotate the car by hand and watch the servo.\n");
-  printf("Turn the car RIGHT -> the servo must steer LEFT to correct (and vice\n");
-  printf("versa). If it drives the SAME way you turned, flip STEER_FB_SIGN.\n");
-  printf("START re-zeroes the pose, SET exits.\n\n");
-
-  const ArcPlan plan = pathPlan(8.0f, GATE_BULGE_H_M);
-  printf("[STR] nominal arc D=8.00 h=%.3f -> R=%.2f L=%.3f k=%.4f\n",
-         (double)GATE_BULGE_H_M, (double)plan.R, (double)plan.L, (double)plan.k);
+  printf("Check HEADING_SIGN with '6 IMU heading' FIRST.\n");
+  printf("FWD: turn the car LEFT -> wheels steer RIGHT. If not, flip STEER_DIR_SIGN.\n");
+  printf("REV: turn the car LEFT -> wheels steer LEFT. If FWD is right but REV is\n");
+  printf("wrong, don't flip a sign: suspect the reverse law or the rear geometry\n");
+  printf("(ENC_FROM_MP_M, or WHEELBASE_L_M with pure pursuit).\n");
+  printf("DialBtn = FWD/REV, START = re-zero, SET = exit.\n\n");
 
   uiShow("Steer test", "priming...");
   for (int i = 0; i < 30 && !imuHealthy(); i++) { (void)imuYawDeg(); sleep_ms(20); }
@@ -433,39 +492,63 @@ void calSteerTest() {
   poseSetActive(true);              // estimator runs on core1 from here
   sleep_ms(200);                    // let a few ticks land
 
-  bool lastStart = uiStartPressed(), lastSet = uiSetPressed();
+  bool rev = false;
+  float delta = 0.0f;
+  // Each mode runs whichever law config.h selects; the LCD names it.
+  const char *fwdName = (STEER_FWD_LAW == SteerLaw::PurePursuit) ? "PP" : "STAN";
+  const char *revName = (STEER_REV_LAW == RevSteerLaw::PurePursuit) ? "PP"
+                      : (STEER_REV_LAW == RevSteerLaw::Stanley)     ? "STAN" : "AIM";
+  const float xTarget = -CAL_STEER_REV_TARGET_M;   // REV mode: aim behind the start
+  bool lastStart = uiStartPressed(), lastSet = uiSetPressed(), lastDial = uiDialPressed();
   uint32_t lastDraw = 0;
 
+  odoSpeedReset();
   while (true) {
-    const Position p   = poseGet();
-    const float    ect = pathCrosstrack(plan, p);
-    // Same commanded angle the run loop would produce, and it drives the servo.
-    const float    d   = steerControl(plan, p, odoSpeedMps());
-    const int      us  = SERVO_CENTER_US + (int)(d * SERVO_US_PER_RAD);
+    odoSpeedTick(odoDistanceM());   // the speed estimate lives on this core (odo.h)
+    const Position ro = poseGet();
+    delta = rev ? steerLawReverse((float)ro.x, (float)ro.y, (float)ro.theta,
+                                  std::fabs(odoSpeedMps()), xTarget, delta)
+                : steerLawForward((float)ro.y, (float)ro.theta, std::fabs(odoSpeedMps()));
+    steerSetAngle(delta);
 
     const uint32_t now = to_ms_since_boot(get_absolute_time());
     if (now - lastDraw >= 150) {                 // LCD writes are slow; throttle
       lastDraw = now;
       char l1[17], l2[17];
-      snprintf(l1, sizeof l1, "th%+5.0f ct%+5.2f",
-               (double)(p.theta * 180.0 / M_PI), (double)ect);
-      snprintf(l2, sizeof l2, "d%+5.1f us%4d",
-               (double)(d * 180.0f / (float)M_PI), us);
+      snprintf(l1, sizeof l1, "%s %-4s th%+5.1f", rev ? "REV" : "FWD", rev ? revName : fwdName,
+               (double)(ro.theta * 180.0 / M_PI));
+      snprintf(l2, sizeof l2, "y%+5.2f d%+5.1f", (double)ro.y,
+               (double)(delta * 180.0f / (float)M_PI));
       lcdClear(); lcdPrintAt(0, 0, l1); lcdPrintAt(0, 1, l2);
-      printf("[STR] theta=%+7.1f deg  ct=%+6.3f m  delta=%+6.2f deg  us=%4d\n",
-             (double)(p.theta * 180.0 / M_PI), (double)ect,
-             (double)(d * 180.0f / (float)M_PI), us);
+      printf("[STR] %s %-4s theta=%+7.1f deg  y=%+6.3f m  delta=%+6.2f deg (%s)\n",
+             rev ? "REV" : "FWD", rev ? revName : fwdName, (double)(ro.theta * 180.0 / M_PI), (double)ro.y,
+             (double)(delta * 180.0f / (float)M_PI), delta > 0 ? "LEFT" : delta < 0 ? "RIGHT" : "centre");
     }
 
+#if USE_DIAL_ENTRY
+    const bool db = uiDialPressed();
+    if (!lastDial && db) { rev = !rev; delta = 0.0f; sleep_ms(BUTTON_RELEASE_SETTLE_MS); }
+    lastDial = db;
+#else
+    (void)lastDial;
+#endif
+
     const bool sp = uiStartPressed();
-    if (!lastStart && sp) { poseZeroAtArm(); printf("[STR] pose re-zeroed\n"); }
+    if (!lastStart && sp) {
+#if !USE_DIAL_ENTRY
+      // No dial: START also toggles FWD/REV, so the reverse check stays reachable.
+      rev = !rev; delta = 0.0f;
+#endif
+      printf(poseZeroAtArm() ? "[STR] pose re-zeroed\n"
+                             : "[STR] re-zero FAILED: IMU not answering on core1\n");      // (odoZero inside the zero also restarts the speed estimate.)
+    }
     lastStart = sp;
 
     const bool st = uiSetPressed();
     if (!lastSet && st) {
-      while (uiSetPressed()) sleep_ms(5);
+      uiWaitSetRelease();
       poseSetActive(false);
-      steerWriteUs(SERVO_CENTER_US);
+      steerCenter();
       printf("[STR] exit — estimator off, servo centred\n");
       return;
     }
@@ -478,6 +561,10 @@ void calSteerTest() {
 // Menu
 //==============================================================================
 void calMenu() {
+  // A run ends with the motor shorted (driveHold) so the car can't move while it
+  // is measured. Release it here: the bench tools push the car by hand, and
+  // pushing against a braked motor skids the wheels and corrupts M_PER_COUNT.
+  driveCoast();
   static const char *items[] = {"1 Encoder read", "2 Motor test",
                                 "3 Servo jog", "4 PWM->speed",
                                 "5 Input test", "6 IMU heading",
