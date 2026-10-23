@@ -7,11 +7,11 @@ Unphayzed EV kit; "New" = the active-tracking retrofit adds it.
 
 | Part | Qty | Notes | Source |
 |---|---|---|---|
-| Raspberry Pi Pico 2 (RP2350) | 1 | The brain. 3.3 V logic, **not** 5 V-tolerant. | New |
+| Raspberry Pi Pico (RP2040) | 1 | The brain. 3.3 V logic, **not** 5 V-tolerant. (Bench board is a Pico 1; a Pico 2 also works.) | New |
 | Adafruit BNO085 (BNO08x) IMU | 1 | Heading. I2C addr **0x4A**. VIN 3–5 V, onboard 10 K I2C pull-ups. | New |
 | MG90S-class metal-gear micro servo | 1 | Steering. ~2.0–2.5 kg·cm. 5 V. | New |
 | BTS7960 (IBT-2) motor driver | 1 | Motor 6–27 V / 43 A; **VCC logic = 5 V**, inputs accept 3.3 V. | Reuse |
-| 550 DC motor — OGRC 550 **21T** brushed | 1 | Rear drive. ~1778 Kv -> ~17,000 RPM no-load on the 9.6 V pack. ⚠️ **Over-geared for this event — see §Gearing.** | Reuse |
+| 550 DC motor — **35T** brushed (since 2026-10-23; was an OGRC 550 21T) | 1 | Rear drive. ~1070 Kv (scaled from the 21T's ~1778) -> ~10,000 RPM no-load on the 9.6 V pack. See §Gearing. | Swapped |
 | Gearbox — RZXYLRC full-metal, Axial SCX10 I/II | 1 | 48P. Pinion/spur **4.35:1** x internal **2.6:1** = **11.31:1 total**. Output drives the wheel shaft directly — **no axle reduction in the driveline.** | Reuse |
 | Rear wheels | 2 | **2-7/8 in = 73.03 mm** OD (circumference 0.2294 m). | Reuse |
 | Free-rolling front encoder — Signswise 600 P/R optical | 1 | Belt-driven off the undriven front axle = distance. DC 5–24 V, NPN open-collector; power at 5 V, pull A/B up to **3.3 V** (no level shifter). | Reuse |
@@ -70,27 +70,32 @@ pull-ups); BTS7960/IBT-2 module docs (VCC 5 V logic, 3.3 V-compatible inputs, 6�
 
 ---
 
-## Gearing — open issue (2026-08-22)
+## Gearing (updated 2026-10-23)
 
-The rules envelope needs **0.42–1.17 m/s** (trapezoid peak, D 7–10 m over T 10–20 s).
-At the current **11.31:1** with the 21T motor and 73.03 mm wheels, full duty is
-**5.77 m/s** — so the whole operating range sits at **7–20% PWM**, in the brushed
-motor's dead zone. Target total ratio is **26:1–44:1**.
+**Current: 35T motor, stock 13T pinion, 11.31:1 total.** With 73.03 mm wheels, full duty
+is about **3.5 m/s** (estimated from Kv; the 21T it replaced gave 5.77 m/s).
 
-| Option | Total | v@100% | Duty band |
+The 2027 run's normal speeds (cruise, push and reverse, roughly 0.35–1.6 m/s) now
+land at about **10–46% duty**, clear of the dead zone. The slow segments are another
+matter: capture at 0.2 m/s and the final creeps at 0.05–0.06 m/s need only ~2–6% duty,
+which is inside any brushed motor's dead zone at this ratio. The firmware handles that
+with its speed loop and stall kick, but a **9T pinion (16.2:1)** would lift those to
+~2–8% and smooth them further.
+
+| Option | Total | v@100% | Normal speeds (0.35–1.6 m/s) |
 |---|---|---|---|
-| Current (21T, 13T/56T) | 11.3:1 | 5.77 m/s | 7–20% ❌ |
-| 21T + 9T pinion (stock spur) | 16.2:1 | 4.03 m/s | 10–29% ⚠️ |
-| **35T + 9T pinion (stock spur)** | **16.2:1** | **2.42 m/s** | **17–48%** ✅ |
-| 21T + 9T/87T spur | 25.1:1 | 2.60 m/s | 16–45% ✅ (spur may not fit) |
+| Old: 21T + 13T pinion | 11.3:1 | 5.77 m/s | 6–28% ❌ |
+| **Now: 35T + 13T pinion** | **11.3:1** | **~3.5 m/s** | **~10–46%** ✅ |
+| 35T + 9T pinion (stock spur) | 16.2:1 | 2.42 m/s | 14–66% ✅ (top speed tight for 1.6 m/s) |
+| 21T + 9T/87T spur | 25.1:1 | 2.60 m/s | 13–62% (spur may not fit) |
 
-**Recommended: 35T motor + 9T pinion.** Works with the stock spur, so it does not
-depend on gearbox case clearance — measure that before buying any large spur.
+Re-measure on the bench with the new motor: stiction (menu 2 → `KICK_PWM`) and the
+speed line (menu 4 → `SPEED_FF_OFFSET_PCT`, `SPEED_FF_PCT_PER_MPS`). Values from the
+21T no longer apply.
 
 **Do NOT** pair a 35T with a 3.75:1 axle reduction: that caps the car at 0.92 m/s and
 makes D=10 m / T=10 s physically unreachable.
 
-**This does not block bring-up.** The encoder-triggered stop works at any gearing, so
-the dominant 2 pt/cm distance term is unaffected; only the 1 pt/s time term and
-low-speed consistency suffer. Run the `cal.cpp` PWM sweep on the current gearing first
-— measured data beats the Kv estimate above.
+The encoder-triggered stop works at any gearing, so the 2 pt/cm distance term doesn't
+depend on it; low-speed smoothness and top speed do. Measured data from the menu 4
+sweep beats the Kv estimates above.

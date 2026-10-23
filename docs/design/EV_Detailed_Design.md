@@ -4,7 +4,7 @@
 
 Companions: `../rules/EV_Rules_2027.pdf` (official rules), `EV_Rules_Scoring_Model.md` (2027 rules & strategy), `EV_Active_Tracking_Proposal.md`, `EV_Steering_Linkage_Design.md`, `EV_Hardware_Build_Guide.md`, `../OPERATING_GUIDE.md`.
 
-**Hardware facts (from the Aug 26 bench session — see git log `0dbef69`, `a131e60`):** the board is a **Pico 1 (RP2040)**, `PICO_BOARD "pico"`. **The pin map lives in `src/config.h` and `docs/WIRING_GUIDE.md`** — this doc doesn't repeat it. Motor leads are 16 AWG. Encoder is a 600 P/R open-collector unit (no level shifter needed). Wheels are 73.03 mm. Gearbox is 11.31:1.
+**Hardware facts (from the Aug 26 bench session — see git log `0dbef69`, `a131e60`):** the board is a **Pico 1 (RP2040)**, `PICO_BOARD "pico"`. **The pin map lives in `src/config.h` and `docs/WIRING_GUIDE.md`** — this doc doesn't repeat it. Motor leads are 16 AWG. Encoder is a 600 P/R open-collector unit (no level shifter needed). Wheels are 73.03 mm. Gearbox is 11.31:1. Motor is a 550 **35T** (since 2026-10-23; was 21T), so full duty is ~3.5 m/s.
 
 ---
 
@@ -45,7 +45,7 @@ Sideways tolerance at capture is about X_b · sin(heading error). At 4.0 m, 0.5�
 ## 1. System overview (electronics unchanged)
 
 ```
- 8x AA NiMH (~9.6 V) ──16 AWG──> BTS7960 ──> 550 motor ──> 11.31:1 gearbox ──> rear wheels   (fwd + REV)
+ 8x AA NiMH (~9.6 V) ──16 AWG──> BTS7960 ──> 550 35T motor ──> 11.31:1 gearbox ──> rear wheels   (fwd + REV)
         └──> 5 V buck ──> servo, BTS7960 logic, Pico VSYS, encoder supply
  Pico (RP2040): core1 = pose estimator 500 Hz · core0 = state machine
    I2C bus A: BNO085 (Game Rotation Vector)      I2C bus B: 16x2 LCD
@@ -60,7 +60,7 @@ Pins: `src/config.h` §1 and `docs/WIRING_GUIDE.md`. Wiring rules learned on the
 **Battery reminder (2027):** no coin cell may power anything (an RTC or backup cell on a breakout counts). Everything runs from the AA pack.
 
 ### Gearing matters more in 2027
-`docs/BOM.md` already flags that 11.31:1 puts the 2026 speed envelope at ~7–20 % PWM, in the motor's dead zone, and recommends 26–44:1 (e.g. 35T motor + 9T pinion). The 2027 run adds **slow capture, slow final push and a slow reverse creep**, all at the bottom of the speed range, in both directions. Regearing moves from "nice to have" to "do before calibration." After regearing, check the opposite end too: the worst case (D = 9, B = 3, T = 10 s) needs a path of ~14.6 m in under 10 s, an average of ~1.5 m/s.
+**Update 2026-10-23:** the motor is now a 35T on the stock 13T pinion (11.31:1), so normal speeds sit at ~10–46 % duty; the slow segments are still in the dead zone and rely on the speed loop and stall kick (a 9T pinion would help). See `docs/BOM.md` §Gearing. Original note: `docs/BOM.md` flagged that 11.31:1 with the old 21T put the 2026 speed envelope at ~7–20 % PWM, in the motor's dead zone, and recommended 26–44:1 (e.g. 35T motor + 9T pinion). The 2027 run adds **slow capture, slow final push and a slow reverse creep**, all at the bottom of the speed range, in both directions. Regearing moves from "nice to have" to "do before calibration." After regearing, check the opposite end too: the worst case (D = 9, B = 3, T = 10 s) needs a path of ~14.6 m in under 10 s, an average of ~1.5 m/s.
 
 ---
 
