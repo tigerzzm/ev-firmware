@@ -1,212 +1,211 @@
-# EV — Detailed Design (Pico 2 + BNO085, servo-steered pose tracking)
+# EV — Detailed Design (Pico + BNO085, servo heading-hold) · 2027 revision
 
-*The buildable spec for the redesign: track geometry, pin map, wiring, power, firmware state machine, and control-loop pseudocode. This is the design the firmware in `src/` implements.*
+*Revised 2026-10-18 for the 2027 rules. The task changed from "arc through a can gate, stop the front MP at the target" to "capture a bottle → push it past a line → reverse until the **rear** MP is on the target." Electronics are unchanged from the Aug 26 bring-up. Track geometry, run plan, state machine, control laws, calibration and test plan are rewritten. **Firmware rewritten for 2027 on 2026-10-18** (`plan`, `steer_law`, `speed`, `sm`, `ui`, `odo` fwd/rev split, `drive` hold; see `docs/OPERATING_GUIDE.md`). Not yet run on hardware. Deviations from this doc: PUSH_END and CREEP_REV are folded into the PUSH/REVERSE speed profiles (constant-decel ramps), and the plan raises cruise/push/reverse speed only when the run would not fit inside T.*
 
-Companion to `EV_Active_Tracking_Proposal.md` (architecture rationale), `EV_Design_Review.md`, `EV_Rules_Scoring_Model.md`, `EV_How_It_Works.md`.
+Companions: `../rules/EV_Rules_2027.pdf` (official rules), `EV_Rules_Scoring_Model.md` (2027 rules & strategy), `EV_Active_Tracking_Proposal.md`, `EV_Steering_Linkage_Design.md`, `EV_Hardware_Build_Guide.md`, `../OPERATING_GUIDE.md`.
+
+**Hardware facts (from the Aug 26 bench session — see git log `0dbef69`, `a131e60`):** the board is a **Pico 1 (RP2040)**, `PICO_BOARD "pico"`. **The pin map lives in `src/config.h` and `docs/WIRING_GUIDE.md`** — this doc doesn't repeat it. Motor leads are 16 AWG. Encoder is a 600 P/R open-collector unit (no level shifter needed). Wheels are 73.03 mm. Gearbox is 11.31:1.
 
 ---
 
-## 0. Track geometry & the path we're following (from the official rules)
+## 0. Track geometry & run plan
 
-Coordinates: **x** = forward along the centerline (Start → Target), **y** = left of centerline (positive).
+**Frame:** x is forward along the centerline (Start = 0, Target = D); y is left of center. All positions below are the **rear MP's x** unless noted.
 
-- **Start** at (0, 0). **Target Point** at (**D**, 0), straight ahead on the centerline; D = announced target distance, 7.00–10.00 m.
-- **Bonus line** at x = D/2, perpendicular, to the **left**. Outer can inside edge at **y = 100 cm** (placed by the ES). Inner can placed by you, its edge 0–100 cm inboard of the outer can. Your vehicle must pass **between** the cans.
-- **Can Bonus = −0.5 × (110 − gap_cm)** — lower total score wins, so a *narrower* gap earns more (bounded by your car's width).
+**Inputs announced after impound:** D (5–9 m), B (1–3 m past the Target), T (10–20 s). The bottle position X_b (2.0 / 3.0 / 4.0 m by level) is entered as a setting.
 
-**Planned path = a constant-curvature circular arc** through (0,0) → apex (D/2, **h**) → (D, 0), where **h** (the sideways bulge / sagitta) is set so the car's center threads the can gate (~90–95 cm for a tight, high-bonus gate).
+**Vehicle constants (measured):**
+- `L_P` — distance along the car from the pusher's contact face back to the MP. Overall length ≤ 80 cm includes pusher + MP.
+- `R_BOTTLE` — about 0.033 m (6.5 cm bottle).
+
+**Tuning constants (calibrated):**
+- `A_PAST` — aim the bottle's near side this far past the line (default 0.05 m).
+- `S_SLIDE` — how far the bottle slides after release (≈ 0 if braking is gentle; see §6.4).
 
 ```
-Radius:      R   = h/2 + D^2 / (8h)
-Arc angle:   PHI = 2 * asin( D / (2R) )
-Arc length:  L   = R * PHI          // distance the car actually travels; this is the stop target
-Curvature:   k   = 1 / R            // constant (left turn)
-Arc center:  C   = (D/2,  h - R)    // note h - R < 0, i.e. to the right of centerline
+Capture:   pusher face meets bottle when  x_MP = X_b - R_BOTTLE - L_P     (X_b is the bottle centre, §7.c.ii.5)
+Fwd stop:  X_F = D + B + A_PAST - S_SLIDE - L_P
+Reverse:   R   = X_F - D = B + A_PAST - S_SLIDE - L_P        (always > 0: B >= 1.00, L_P < 0.80)
+Path:      P   = D + 2R      (≈ 5.5 m … ~14.6 m over the full rule range)
 ```
 
-The car follows curvature `k` and stops when the free-roller encoder reads arc length `L`. Because it's a single circular arc, the *nominal* steering is a constant angle; the feedback loop's whole job is to hold the car on that arc despite misalignment, slip, and floor imperfections — the thing the fixed-angle design can't do.
-
-*(Implemented in `src/path.cpp` — `pathPlan(D, h)` returns R, L, k, C; unit-tested in `host_check/`.)*
-
----
-
-## 1. System block diagram
+**Key simplification: the final stop depends only on net displacement.**
+The free-rolling front encoder counts in both directions. The MP's final x is therefore `net_counts × m_per_count`, whatever happened on the forward leg. A forward overshoot of 3 cm moves the **bottle** 3 cm (1 pt/cm) but does **not** move the final MP position (2 pt/cm). The reverse stop target is simply:
 
 ```
-              +----------------------- 8x AA NiMH pack (~9.6-12 V) ----------------------+
-              |                          |                              |
-              v                          v                              v
-        [BTS7960 driver]           [5 V regulator] --> servo,LCD    [Barrel plug -> Pico VSYS]
-              |  ^                        |
-        550 motor  |PWM/EN                | 5 V
-         (rear)    |                      v
-                   |                 [Steering servo] --(direct couple)--> front pivot
-                   |
-   =========================  Raspberry Pi Pico 2 (RP2350, 3.3 V)  =========================
-     I2C0 (SDA/SCL) ---- BNO085 (0x4A/0x4B)  +  16x2 LCD (0x27)   [shared bus]
-     PIO SM0 <---------- Front free-roller encoder A/B  (level-shifted if 5 V)
-     PWM ---------------> BTS7960 RPWM/LPWM,  R_EN/L_EN
-     PWM ---------------> Steering servo signal
-     GPIO <-------------- Rotary dial CLK/DT/btn, Start btn, Set btn
-   ========================================================================================
+N_FINAL = D / M_PER_COUNT        (net signed count; refine with separate fwd/rev scales, §7)
 ```
 
----
+**Path shape:** a **straight line on y = 0** for both legs. There is no can gate any more. Steering is now **heading/lateral hold**. Its value: lateral error at capture (narrow pusher) and lateral error of the MP at the Target (point-to-point distance).
 
-## 2. Pin map (Raspberry Pi Pico 2 / RP2350)
-
-All GPIO are 3.3 V and **not** 5 V-tolerant. PWM: any GPIO. PIO: any GPIO. *(Matches `src/config.h`.)*
-
-| Function | Signal | Pico GPIO | Notes |
-|---|---|---|---|
-| **I2C0** | SDA | GP4 | shared: BNO085 + LCD |
-| | SCL | GP5 | 3.3 V bus; 4.7 kΩ pull-ups |
-| **BNO085** | INT | GP6 | optional (data-ready) |
-| | RST | GP7 | optional (clean reset) |
-| **Front encoder** (distance) | A | GP10 | PIO quadrature; **level-shift if 5 V** |
-| | B | GP11 | PIO quadrature |
-| *(opt) drive-motor encoder* | A / B | GP12 / GP13 | for the speed loop only |
-| **Motor driver BTS7960** | RPWM | GP16 | PWM (forward) |
-| | LPWM | GP17 | PWM (reverse / brake) |
-| | R_EN + L_EN | GP18 | tie both enables to one GPIO |
-| | R_IS / L_IS | GP26 / GP27 (ADC) | optional current sense |
-| **Steering servo** | SIG | GP15 | 50 Hz, 1000–2000 µs; powered from 5 V |
-| **Rotary dial** | CLK / DT | GP20 / GP21 | value entry |
-| | button | GP22 | cycles increment |
-| **Buttons** | START | GP14 | pressed by the pencil trigger |
-| | SET | GP19 | confirm dist/time |
+Sideways tolerance at capture is about X_b · sin(heading error). At 4.0 m, 0.5° → 3.5 cm. A 9 cm mouth with a 6.5 cm bottle leaves only ±1.25 cm. Active heading hold is what makes a narrow, high-bonus pusher safe.
 
 ---
 
-## 3. Power & wiring notes
-
-- **Motor** runs straight off the pack through the BTS7960. Keep motor + logic grounds **common** but route motor current on its own thick leads (**16 AWG**; both legs, since the return carries the same current) back to the pack, not through the logic ground. Never through a breadboard, and never through a regulator — a buck in this path current-limits the starting surge and the motor will hum without starting.
-- **Servo** wants a stable **5 V** and can pull >1 A on a stall spike — feed it from a regulator (a 5 V, ≥2 A buck), **not** a Pico pin. Common-ground with the Pico.
-- **Pico** powers from the pack via VSYS — VSYS accepts ~1.8–5.5 V; feed the 5 V rail into VSYS, not the raw pack.
-- **BNO085** at 3.3 V from the Pico's 3V3(OUT); on the 3.3 V I2C bus directly.
-- **Encoder**: if 5 V, power at 3.3 V (if supported) or put a level shifter on A and B before the Pico.
-- **Decoupling**: 100 µF+ across the motor driver supply and 470 µF near the servo rail; 0.1 µF at each IC.
-
-*(Full wiring detail + a diagram: `docs/WIRING_GUIDE.md` and `docs/wiring_diagram.html`.)*
-
----
-
-## 4. Firmware architecture
-
-Modules (implemented in `src/`):
-
-- `imu` — BNO085 over I2C; **Game Rotation Vector**; `imuYawDeg()` (zeroed at arm in `pose`).
-- `odo` — read the front-encoder PIO counter; `distance_m()`.
-- `pose` — integrate `(x, y, θ)` from `ds` and heading; gated so it owns I2C only during a run.
-- `path` — from `D` and `h`: `R, L, k, C`; `pathCrosstrack(pose)` and `pathArcRemaining(distance)`.
-- `steer` — servo I/O + Stanley-style control → servo µs; `steerSetAngle(delta)`.
-- `speed` — target-time → cruise PWM (calibrated table); trapezoidal profile.
-- `drive` — BTS7960 helpers: `driveForward(pwm)`, `driveBrake()`, `driveCoast()`.
-- `ui` — LCD + dial + buttons; entry of `D` and `T`; post-run readout.
-- `sm` — the state machine below.
-- `lcd` — PCF8574 I2C LCD driver. Plus harvested `imu`/`pid`/`motor_controller`/`utils`/`ram_*` and the PIO program.
-
-Two-core split: **core 1 = pose estimator** at the control tick; **core 0 = state machine**.
-Control tick: **500 Hz** (2 ms). BNO085 polled at ~100 Hz, latest heading held between reads.
-
----
-
-## 5. State machine
+## 1. System overview (electronics unchanged)
 
 ```
-BOOT  -> init IMU, PIO encoder, servo(center), LCD; motor coast -> SETUP
-SETUP -> dial + SET to enter D (m), then T (s); optional gate bulge h;
-         compute R,L,k,C and cruise plan; center steering -> ARMED
-ARMED -> zero pose=(0,0,0), encoder=0, IMU heading ref = current yaw;
-         steering pre-aimed to arc tangent; wait for START (pencil) -> LAUNCH
-LAUNCH-> forward(pwm_launch) ~150 ms; start timer -> CRUISE
-CRUISE-> each tick: update pose; delta=steering_control(pose); pwm=speed_control(...);
-         until arc_remaining <= creep_zone -> APPROACH
-APPROACH (the #1 accuracy win) -> creep at low pwm, keep steering on arc,
-         stall-guard bumps pwm if not progressing, until distance >= L -> BRAKE
-BRAKE -> active reverse pulse, then coast -> DONE
-DONE  -> settle; read final distance & time; LCD readout; -> SETUP (2nd run)
+ 8x AA NiMH (~9.6 V) ──16 AWG──> BTS7960 ──> 550 motor ──> 11.31:1 gearbox ──> rear wheels   (fwd + REV)
+        └──> 5 V buck ──> servo, BTS7960 logic, Pico VSYS, encoder supply
+ Pico (RP2040): core1 = pose estimator 500 Hz · core0 = state machine
+   I2C bus A: BNO085 (Game Rotation Vector)      I2C bus B: 16x2 LCD
+   PIO: front free-roller encoder A/B (signed, both directions)
+   PWM: BTS7960 RPWM/LPWM (+ split enables) · servo → drag link (≈1:5.6) → front pivot
+   GPIO: dial, START (pencil), SET
+ Mechanical (new for 2027): rigid front Bottle Pusher (frontmost) · rigid rear MP (rearmost)
 ```
 
-*(Implemented in `src/sm.cpp`; APPROACH stall-guard and CRUISE IMU-loss abort are in place.)*
+Pins: `src/config.h` §1 and `docs/WIRING_GUIDE.md`. Wiring rules learned on the bench still apply: never route motor current through a breadboard; never put a regulator in the motor path.
+
+**Battery reminder (2027):** no coin cell may power anything (an RTC or backup cell on a breakout counts). Everything runs from the AA pack.
+
+### Gearing matters more in 2027
+`docs/BOM.md` already flags that 11.31:1 puts the 2026 speed envelope at ~7–20 % PWM, in the motor's dead zone, and recommends 26–44:1 (e.g. 35T motor + 9T pinion). The 2027 run adds **slow capture, slow final push and a slow reverse creep**, all at the bottom of the speed range, in both directions. Regearing moves from "nice to have" to "do before calibration." After regearing, check the opposite end too: the worst case (D = 9, B = 3, T = 10 s) needs a path of ~14.6 m in under 10 s, an average of ~1.5 m/s.
 
 ---
 
-## 6. Control-loop pseudocode
+## 2. Firmware modules (changes marked ▲)
 
-### 6.1 Pose estimation
+- `imu` — BNO085 Game Rotation Vector → `heading()` zeroed at ARM. Unchanged.
+- `odo` ▲ — **signed** count (`int32_t`) from PIO. `distance_m()` = net signed distance. Optional separate `M_PER_COUNT_FWD/REV`.
+- `pose` — integrate (x, y, θ) with **signed** `ds` (`x += ds·cosθ` works unchanged in reverse).
+- `plan` ▲ — replaces the arc `path`. From D, B, T, X_b → X_F, R, N_FWD, N_FINAL, capture window, motion-time estimate, start delay.
+- `steer` ▲ — straight-line hold, forward and reverse laws (§4.2).
+- `speed` ▲ — segment speeds (cruise / capture / push / reverse / creep) and gentle accel limits. No longer responsible for hitting T.
+- `drive` ▲ — `forward(pwm)`, `reverse(pwm)`, `brake()`, `coast()`.
+- `ui` ▲ — enter **D, B, T** (plus level / X_b preset); keep the existing stop-offset entry (run 1 calibrates run 2); post-run readout of net distance, forward-stop error and run time.
+- `sm` ▲ — the new state machine (§3).
+- `cal` — existing bench menu; add a reverse-creep probe, a bottle push test, and a turnaround timer.
+- `config.h` — every new constant (`L_P`, `A_PAST`, `S_SLIDE`, `X_B_*`, `V_CAPTURE`, `TURN_MS`, …) goes here, per the repo convention.
+
+Control tick: 500 Hz. The servo actuates at 50 Hz (20 ms frame).
+
+---
+
+## 3. State machine
+
+```
+BOOT → SETUP
+SETUP
+  enter D, B, T; level preset → X_b
+  plan(): X_F, R, N_FWD, N_FINAL, capture window, t_motion_est, t_delay = max(0, T - t_motion_est - T_BIAS)
+  check: P fits inside T at max safe speeds — else warn on LCD
+  SET → ARMED
+ARMED
+  zero encoder, pose = (0,0,0), IMU heading ref; servo centred; motor coast
+  START (pencil) → DELAY            // Run Time starts NOW
+DELAY                               // legal: pre-motion pause counts toward Run Time, may exceed 3 s
+  hold still (motor coast, servo centred) for t_delay → CRUISE
+CRUISE        fwd, heading hold on y=0, ramp to V_CRUISE (accel ≤ A_MAX)
+  until x_MP ≥ capture_start (≈ contact − CAPTURE_LEAD, e.g. 0.15 m) → CAPTURE
+CAPTURE       fwd at V_CAPTURE (slow; bottle must not be kicked ahead)
+  until x_MP ≥ contact + SEAT_MARGIN → PUSH
+PUSH          fwd, heading hold, ramp gently to V_PUSH (accel ≤ A_PUSH_MAX: anti-tip)
+  until x_MP ≥ X_F − decel_dist(V_PUSH) → PUSH_END
+PUSH_END      closed-loop decel to stop at count N_FWD, decel ≤ A_RELEASE (< μg, so the bottle stays seated, S_SLIDE ≈ 0)
+  at count ≥ N_FWD → TURNAROUND
+TURNAROUND    brake; dwell TURN_MS (≈ 300–500 ms); hard cap so total stationary time < 2.0 s
+  → REVERSE
+REVERSE       reverse at V_REV, reverse steering law aiming the MP at (D, 0)
+  until x_MP ≤ D + CREEP_ZONE → CREEP_REV
+CREEP_REV     reverse at PWM_CREEP (stall guard: bump PWM if < MIN_COUNTS per window)
+  until net_count ≤ N_FINAL → BRAKE
+BRAKE         short opposite pulse (forward) ~80–120 ms, then hold → DONE
+DONE          LCD: final net distance, X_F error, elapsed time; store for run-2 offset → SETUP
+```
+
+**Rules-driven guards**
+- **No mid-run pause ≥ 3 s.** Any state that can sit still (TURNAROUND, a stalled CREEP) needs a timer well under 3 s. Otherwise the run ends with the MP in the wrong place.
+- **IMU loss → degrade, don't stop.** The existing "IMU-loss abort" would stop the car mid-track. Under 2027 rules that is a stopped run, likely with the bottle short. Change it to: centre the servo and continue on encoder only.
+- **Runaway watchdog** — keep it, but its action is "brake and stop," which now also ends the run. Set its limits from the 2027 path length (up to ~14.6 m), not the old arc length.
+- **Never move backward at START.** Moving the wrong way from the Start is a Failed Run. Require `forward()` as the first motion command.
+
+---
+
+## 4. Control laws
+
+### 4.1 Pose
+Unchanged, but with signed `ds`. Track the MP: `x_MP = x_ref − (offset from pose reference to MP)·cosθ`, or simply use net encoder distance on these straight legs.
+
+### 4.2 Steering
+**Forward (straight line, y = 0) — Stanley-style:**
 ```c
-void update_pose() {
-    long   c   = encoder_count();
-    double ds  = (c - c_prev) * M_PER_COUNT;   // M_PER_COUNT = circumference / CPR
-    c_prev     = c;
-    theta      = imu_heading();                // BNO085 yaw, zeroed at ARM
-    x += ds * cos(theta);  y += ds * sin(theta);
-    distance += ds;                            // arc length traveled (free roller)
-}
+e_head = wrap(0.0 - theta);
+e_ct   = y;                                   // + = left of line
+delta  = Kh*e_head - atan2(Kc*e_ct, v + EPS); // signs finalised on bench
+delta  = clamp(delta, -DELTA_MAX, DELTA_MAX); // DELTA_MAX ≈ 0.12 rad (mechanical limit)
 ```
-
-### 6.2 Lateral control — feedforward arc + cross-track feedback
+**Reverse (front axle trails; θ̇ = v·tanδ/L with v < 0, so the response sign flips):**
 ```c
-double steering_control() {
-    double delta_ff = atan(WHEELBASE_L * k);          // k = 1/R (left +)
-    double dxc = x - Cx, dyc = y - Cy;
-    double e_ct  = sqrt(dxc*dxc + dyc*dyc) - R;        // >0 = outside the arc
-    double tangent = atan2(dxc, -dyc);                // sign set on bench
-    double e_head  = wrap(tangent - theta);
-    double delta_fb = Kh * e_head + atan2(Kc * e_ct, v_est + EPS);
-    return clamp(delta_ff + delta_fb, -DELTA_MAX, +DELTA_MAX);
-}
-void set_angle(double delta) {
-    int us = SERVO_CENTER_US + (int)(delta * SERVO_US_PER_RAD);
-    servo_write_us(clamp(us, SERVO_MIN_US, SERVO_MAX_US));
-}
+theta_des = atan2(y_mp, x_mp - D);   // forward-heading that points the rear MP at the target (≈0 if on line)
+delta     = -Kr * wrap(theta_des - theta);
 ```
-*(Signs of `e_ct`, `e_head`, `SERVO_US_PER_RAD` are finalized on the bench — push the car off the arc; the servo must steer back toward it.)*
+Keep `Kr` low; the reverse leg is short (≈0.2–2.6 m) and slow. The real defence is ending the forward leg on the line. If reverse steering misbehaves on the bench, **centre the servo in reverse** and rely on forward accuracy.
 
-### 6.3 Longitudinal control — hit the target time
-```c
-double speed_control() {
-    double v_ref = trapezoid_v(distance, L, T);   // desired speed now
-    double pwm   = pwm_for_speed(v_ref);          // calibrated table
-    return clamp(pwm, 0, PWM_MAX);                // optional inner loop off the free roller
-}
-```
-*Time is only 1 pt/sec — table + trapezoid is plenty. Don't let timing tuning disturb the stop.*
+### 4.3 Speed and time
+- Time is worth only 0.5 pt/s, and a start delay absorbs any slack. Pick segment speeds for **accuracy and bottle safety**, not for T.
+- `t_motion_est` comes from a calibration fit over (D, B). Then `t_delay = T − t_motion_est − T_BIAS`.
+- Only if `P` cannot fit inside T at safe speeds (worst case: D = 9, B = 3, T = 10 s) do you raise V_CRUISE. Warn on the LCD in that case.
 
-### 6.4 The stop
-Triggered by **`distance >= L_target`** on the **free-roller** encoder, at low creep speed, with a stall guard — lands on the same arc length every run regardless of battery/friction. Biggest score gain (distance is 2 pt/cm).
+### 4.4 Bottle physics → firmware constants
+- **Capture speed:** a heavy car hitting a light bottle can launch it at up to ~2× the car's speed. Keep V_CAPTURE low so the bottle seats instead of bouncing.
+- **No tipping:** steady push tips the bottle if the contact height h > r/μ (≈ 8 cm at μ = 0.4). Accelerating lowers that threshold. Put the pusher contact at **2–4 cm** and limit A_PUSH_MAX.
+- **Release:** if the car decelerates more slowly than μg (~3–4 m/s²), the bottle stays pressed against the pusher and stops with it, so S_SLIDE ≈ 0 and its rest position is repeatable. Hard braking instead gives a slide of v²/2μg.
+- **No pulling on reverse:** the pusher geometry must release the bottle the instant the car backs away (§7).
 
 ---
 
-## 7. Calibration procedure (bench, in order)
+## 5. Calibration procedure (bench, in order)
 
-1. **M_PER_COUNT** — roll the car a marked **5.000 m** straight, read counts; `M_PER_COUNT = 5.000 / counts`. Repeat 5×; spread = best-case distance precision.
-2. **WHEELBASE_L** — front-axle to rear-axle contact, in meters.
-3. **Servo map** — `SERVO_CENTER_US` (wheels dead straight) and `SERVO_US_PER_RAD` (command ±known angle, measure actual).
-4. **PWM↔speed table** — at PWM 30/40/…/100 %, measure steady speed; store for `pwm_for_speed()`.
-5. **Steering gains** `Kh, Kc` — start small, increase until it holds the arc without weaving.
-6. **Creep** `pwm_creep`, `creep_zone`, stall-guard, brake pulse — tune for a dead stop, no overshoot.
-7. **Gate/bulge h** — from your can strategy; verify the car threads it before narrowing the gap.
+1. **M_PER_COUNT, forward and reverse separately.** Roll 5.000 m forward and back by hand, 5× each. If they differ, keep both constants.
+2. **L_P, overall length, width, pusher opening W.** Measure exactly. L_P enters every plan.
+3. **Servo map and steering signs** (unchanged procedure). DELTA_MAX ≈ 0.12 rad.
+4. **Straight-line hold, forward.** Lateral error at 2, 3, 4 m and at 9 m.
+5. **Bottle μ and slide.** Measure on a competition-like floor with bottles at 80 g and 100 g. Confirm S_SLIDE ≈ 0 at your A_RELEASE.
+6. **Capture.** At X_b = 2/3/4 m and several V_CAPTURE values, record capture success and bottle seating. Find the narrowest W that is ~100 % reliable.
+7. **Forward stop → bottle position.** Command several X_F values and fit bottle-near-side error vs command. Set A_PAST from the scatter.
+8. **Reverse stop.** From known forward stops, measure final MP error vs N_FINAL. Fit separately from forward (weight transfer and drivetrain reversal differ).
+9. **Turnaround.** Measure the actual stationary time; confirm it is ≪ 3 s.
+10. **Motion time.** Record motion time over a grid of (D, B) and fit `t_motion_est`.
 
-*(Full bench walkthrough with expected serial output: `docs/BRINGUP_AND_TUNING.md`.)*
-
----
-
-## 8. Test plan
-- **Static**: IMU heading stable + zeroing; encoder counts clean; servo hits angles; motor fwd/brake.
-- **Straight-line hold** (h→∞ / k→0): drive straight 5 m; measure heading drift + stopping spread.
-- **Arc hold**: follow a fixed arc; measure lateral error at midpoint (should land in the gate).
-- **Full run**: dial D and T, run, read Fin Dist/Time; log 10 runs, look at the *spread*.
+Build a lookup/fit so entering D, B, T on the day is a lookup, not a calculation.
 
 ---
 
-## 9. What gets reused vs added
+## 6. Test plan
 
-**Reused:** 550 motor, 2WD gearbox, rear drive, single BTS7960, belt-driven free-roller encoder, LCD + dial + buttons UI, chassis, `getArcLength` math.
-**Added:** Raspberry Pi Pico 2, Adafruit BNO085, one metal-gear micro servo (on the existing pivot), a 5 V regulator, and (if the encoder is 5 V) a level shifter.
-**Removed:** the fixed adjustment arm + digital caliper as the *steering setter* (the servo + IMU loop replaces them), and the open-loop calibrate-then-blind-pulse logic. *(See `docs/hardware/CAD_SUMMARY.md`.)*
+- **Static:** encoder counts cleanly in **both** directions with no wrap; IMU zeroing; servo; motor forward/reverse/brake.
+- **Capture reliability:** 20+ runs at each bottle position, with different bottle brands (ridged, smooth, square-shouldered) at 80 g and 100 g. Count misses, tips, and contacts outside the mouth.
+- **Reverse precision:** 10 runs. Log mean and SD of the MP error.
+- **Full runs:** log D, B, T, battery voltage, MP distance, bottle distance (fully past?), run time and computed Run Score. Judge by **mean and SD of the score**, not the best run.
+- **Event rehearsal:** check-in → enter targets → align → pencil start → retrieve → adjust one thing → run 2, against an 8-minute clock.
+- **Host harness:** extend `host_check/test_math.cpp` with the plan() geometry (X_F, R, N_FINAL) and the reverse steering sign. `bash host_check/run.sh` must stay green.
 
 ---
 
-*Design locked: servo-steered front-pivot retrofit · single 550 rear drive (reused) · Pico 2 (RP2350) · BNO085 Game Rotation Vector · free-rolling front encoder for distance (PIO) · constant-curvature arc path through the can gate · encoder-triggered closed-loop stop.*
+## 7. Mechanical additions for 2027
+
+**Bottle Pusher (frontmost, rigid, one only, self-built):**
+- Shallow V or concave cup that centres the bottle.
+- Contact height 2–4 cm. Lowest edge must stay clear of the bottle base: nothing may go under it.
+- All foremost edges rounded to ≥ ~7 mm (pencil thickness).
+- No inward-curling lips, so it never drags the bottle on reverse.
+- Start wide (~15–20 cm). Narrow toward ~9–12 cm only as capture testing allows. Prototype in cardboard, final part in rigid material.
+- Only the inside of the mouth may touch the bottle. Make sure wheels and body can never contact a bottle that slides sideways.
+
+**Rear MP:** a stiff pointer (wire, dowel edge or wedge corner), ≤ 1.0 cm above the floor, and the rearmost point of the car. It must be visible from above for alignment over the Start dot.
+
+**Length budget:** the whole car including pusher and MP must be ≤ 80.0 cm. A longer L_P shortens the reverse leg (less reverse error) and tracks straighter.
+
+**Encoder:** the free-rolling front encoder is ideal for reversing. It measures the ground, not the motor, so drivetrain backlash at direction reversal does not corrupt the count.
+
+---
+
+## 8. What's reused, changed, removed
+
+- **Reused:** Pico (RP2040), BNO085, BTS7960, 550 motor + gearbox (regear recommended), free-roller encoder (now signed, both directions), servo + drag link, LCD/dial/buttons, `cal` bench menu, pin map, power tree.
+- **Changed:** the steering's job (can-gate arc → straight-line heading/lateral hold); the stop (front MP forward → rear MP in reverse, on net count); timing (speed table → start delay); UI (adds B); IMU-loss behaviour (abort → degrade).
+- **Removed:** can-gate arc planner (`R, PHI, k, C`, `GATE_BULGE_H_M`), the can bonus, and the "encoder on steered axle over an arc" correction (moot at κ ≈ 0).
+- **Added:** Bottle Pusher, rear MP, capture/push/turnaround/reverse states, Kit Modification Form.
+
+*2027 baseline: straight-line two-leg run · bottle capture and push · rear-MP reverse stop on net encoder count · start-delay timing · RP2040 + BNO085 heading hold · MG90S on ≈1:5.6 drag link · free-roller encoder (signed).*

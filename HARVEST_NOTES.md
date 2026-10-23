@@ -1,5 +1,11 @@
 # EV firmware — harvest notes
 
+> **2027 rewrite (2026-10-18):** `path.*` was replaced by `plan.*`; `steer.*` was split
+> into `steer_law.*` (pure laws) and `steer.*` (servo I/O); `speed.*`, `sm.*`, `ui.*` and
+> `cal.*` were rewritten; `odo.*` now splits forward/reverse counts; `drive.*` gained a
+> dynamic-brake hold. The unused harvested `pid.*` and `motor_controller.*` were
+> removed. The provenance table below describes the 2026 harvest.
+
 What this project is, where each piece came from, what changed, and what's left
 to write. Source of the harvest: **robotour-pico** (RP2040 differential-drive
 Robot Tour firmware). Target of the harvest: **EV** — single-motor, servo-steered,

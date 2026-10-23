@@ -1,0 +1,361 @@
+                                     ELECTRIC VEHICLE C
+                       See General Rules, Eye Protection & other Policies on www.soinc.org as they apply to every event.
+
+
+1. DESCRIPTION: Teams design, build, and test one vehicle that uses electrical energy as its sole means of
+   propulsion to travel in a set amount of time, push a bottle past a line, and move backwards to stop close to
+   a Target Point.
+   A TEAM OF UP TO: 2			 APPROXIMATE TIME: 12 minutes
+                                              IMPOUND: Yes
+2. EVENT PARAMETERS:
+   a. Vehicle will be designed and built by the team prior to the competition.
+   b. Impound: Team must impound before the first time slot.
+   c. Event Time: Teams will each have 8 minutes to adjust, repair, and run their Vehicle.
+   d. Track: The Event Supervisor will provide and set up the Track as listed in the Track section.
+
+
+
+
+                                   C
+3. CONSTRUCTION PARAMETERS:
+   a. Electrical Energy used by the Vehicle for any purpose must come from a maximum of eight (8) AA
+      batteries.
+      i. No battery containing lithium or lead acid is permitted. Teams using these batteries will not be
+           permitted to run and will receive only participation points.
+      ii. Energy storage methods which allow teams to exceed the instantaneous energy available from the
+           batteries are not allowed. An example would be large capacitors or a spring.
+      iii. Electronic sighting, alignment, or aiming devices may have their own separate power source. Lasers
+           are prohibited.
+      iv. All sources of energy must be in easily accessible locations for inspection by the ES.
+   b. Propulsion Energy: must be electric and come from the AA batteries.
+   c. Components may be purchased or made by the team members. Electronic components are allowed.
+      i. If a microprocessor is used, students may communicate with their device over WiFi, Bluetooth, or
+           USB.
+   d. Vehicle Length: The Vehicle length including all components must not exceed 80.0 cm.
+   e. Vehicle Width: The Vehicle width must not exceed 35.0 cm at any point.
+   f. Bottle Pusher: A device to catch and push the Water Bottle must be attached to the front of the
+      Vehicle. The Pusher must be the foremost part of the Vehicle. Only one Bottle Pusher can be
+      impounded. The Pusher must be rigid, cannot flex, change locations on the Vehicle, have moving
+      parts, or have the ability to change in size. The Pusher’s foremost edge(s) must have rounded
+      edge(s) approximately the diameter of #2 pencil or larger. The Pusher must be able to move bottles
+      not perfectly round. The Bottle does not need to fully fit inside the Bottle Pusher.
+   g. Measurement Point: The Vehicle must have a Measurement Point (MP) for distance measurements at the
+      rear of the Vehicle. The MP must be the rear most part of the Vehicle.
+   h. Remote Control: The Vehicle must not be remotely controlled or tethered.
+   i. Vehicle Parts: All parts of the Vehicle must move as a whole: no anchors, tethers, tie downs, launching
+      ramps, or other separate pieces are allowed. The only parts allowed to contact the floor during the run are
+      wheels/treads, and any parts already in contact with the floor in the ready-to-run configuration. Pieces
+      falling off during the run constitutes a Construction Violation.
+   j. Design Knowledge: Answer questions on design, construction, and operation of the device per the
+      Building Policy found on www.soinc.org.
+   k. Purchased Kits or Open Source Kits are allowed for this event with the following requirements:
+      i. Teams must make at least two functional modifications to the kit during the build process.
+           These modifications need to be documented on the Kit Modification Form available on soinc.
+           org. The completed form must be impounded.
+      ii. A Bottle Pusher from kit sources cannot be used. Teams must design and build their own
+           Bottle Pusher.
+      iii. A kit (supplier or open source) can only provide components if these components are common
+           parts available from other sources (e.g. no custom printed circuit boards). This does not
+           include parts that are 3D printed plastic parts.
+      iv. Teams violating rules 3.k.i. through 3.k.iii. will receive the Non-modification Penalty to their
+           Run Scores.
+
+
+                                                        ©2027 - C26
+                          ELECTRIC VEHICLE C (CONT.)
+                       See General Rules, Eye Protection & other Policies on www.soinc.org as they apply to every event.
+
+
+   l. The program must be developed by at least 1 member of the 15 member team. Teams may use
+      skeleton or blank shell programs from the Internet or another competitor from the same school
+      as their starting point. Teams may download small code sections or examples from the Internet to
+      develop the larger completed program for their device. Single-source programs are prohibited.
+      Teams will receive a construction penalty for violating this rule.
+4. THE COMPETITION:
+   a. Impound before first time slot.
+      i. Teams must impound one Vehicle, batteries, spare parts, alignment device (if used), Kit Modification
+           Form (if used), and any papers (if used).
+      ii. Batteries must be stored separately from Vehicle and presented to ES for inspection if asked. Teams
+           will be allowed to correct if an issue is found.
+
+
+
+
+                                   C
+      iii. Tools do not need to be impounded.
+      iv. Inspections will NOT take place during impound as any of the 15 member team may impound.
+   b. After Impound and before the first time slot, the Target Distance, Target Time, and Bottle Line Distance
+      will be announced and posted. All posted values at a competition will be the same for all teams.
+   c. Check-In
+      i. Only the participants will enter and may bring tools as defined.
+      ii. Teams will be instructed by the ES when to retrieve their impounded items.
+      iii. Teams will present their Vehicle for inspection and measurement by the ES. Participants will be
+           notified at this point if any construction violations are found.
+           (1) A construction violation will be awarded to all runs if more than one Vehicle was impounded.
+           (2) Teams may use their Event Time to correct any construction violations. A team’s Event Time
+                will be paused during re-evaluation by the ES.
+      iv. ES will measure, to the nearest 0.1 cm, the widest opening of the Bottle Pusher (See diagram
+           below). Teams without a designated Bottle Pusher will use 35.0 cm for the measurement.
+
+
+
+
+      v.   Once participants start the Check-In process, they must not leave or gain any outside assistance or
+           materials until their Event Time is completed.
+      vi. Participants may not use an AC outlet power during their time slot.
+      vii. Any type of AI cannot be used by the participants or the device during the team’s event time.
+           AI tools may be used to assist with designing or programming the device prior to the day of
+           the competition.
+   d. Event Time
+      i. The Event Time ends after 2 runs or the time limit has been reached. Teams may adjust their Vehicle
+           (e.g., repair, wiring, change distance, aiming) within their Event Time.
+           (1) The time limit for the Event Time is 8 minutes.
+           (2) The ES will notify the participants when their Event Time starts.
+           (3) Vehicles in the ready-to-run configuration before the end of the Event Time will be allowed to
+                complete a run.
+      ii. Sighting, aligning, measurement, and guiding devices, if used, must be placed and used within the
+           defined Track area. Device(s) cannot be secured to the floor of the track area. Alignment devices
+           can be shared by teams from the same school. If placed on the Vehicle, they may be removed at
+           the team’s discretion. Devices remaining on the Vehicle will be considered part of the Vehicle. All
+           items not part of the Vehicle must be moved and placed behind the Start Point prior to starting a run.
+           Sighting, aligning, and guiding devices may use electricity. Lasers are prohibited.
+      iii. Teams may use their own tools to verify the Track dimensions during their Event Time.
+      iv. Substances applied to the Vehicle must be approved by the ES prior to use and must not damage or
+           leave residue on the floor, Track and/or event area. Teams may clean the Track during their Event
+           Time, but it must remain dry. Competitors are not allowed to use tape on the event floor.
+
+
+                                                        ©2027 - C27
+                          ELECTRIC VEHICLE C (CONT.)
+                       See General Rules, Eye Protection & other Policies on www.soinc.org as they apply to every event.
+
+
+      v.    Teams may access the Internet to program their Device. Any actions not required for programming
+            will cause a team to be awarded a competition violation. Internet access may not be available at all
+            competitions.
+      vi. Teams must not roll or test the Vehicle on the floor of the Track on the day of the event or prior day
+            without tournament permission. If permitted, only participants may be present. During competition,
+            teams must not roll the vehicle on the floor before or after runs.
+      vii. Individual Run Testing
+            (1) Participants must place the Vehicle’s MP above the Start Point within approximately 1 cm.
+                 The Vehicle’s body must be placed in front of the Start Point (on the side toward the
+                 Target Point).
+            (2) The Vehicle must be able to remain at the starting position without being touched until
+                 triggered.
+
+
+
+
+                                   C
+            (3) Participants will notify the ES when ready to start. At which point the ES will pause the Event
+                 Time and review the Vehicle in the Ready-To-Run configuration for any violations.
+                 (a) The ES will only notify the participants of competition violations at the end of each run.
+                     Teams may ask question(s) before the run if there are specific violations. The ES will not
+                     answer generic questions like “Do I have a violation?”
+            (4) Participants will use a #2 unsharpened pencil to start the Vehicle using a vertical motion. Only
+                 the pencil may contact the Vehicle when triggered.
+                 (a) If the Vehicle fails to actuate or move when triggered, then a run has not occurred. The
+                     Vehicle must move to be a measurable run. The participants may continue to work on their
+                     device provided they have not reached the end of their Event Time.
+            (5) Once the run starts and until the Vehicle is retrieved, competitors may not use, view, or access
+                 their programming tool(s).
+            (6) ES will review the run to determine if the run was Successful or a Failed Run.
+            (7) Run Time, Vehicle Distance, and Bottle Distance will be measured and recorded for
+                 Successful runs.
+            (8) ES will verify the Moving Water Bottle Requirements were followed.
+            (9) Competitors following their Vehicle down the track before being called to retrieve their
+                 vehicle, will receive a Competition Violation.
+            (10) All violations will be recorded. The ES must notify the participants of any violations at the
+                 end of each run.
+            (11) Timing resumes once the participants pick up their device or begin working toward the next
+                 run.
+      viii. The Event Supervisor will review with teams their data recorded at the end of their Event Time.
+      ix. Teams filing an appeal must leave their Vehicle and other impounded material in the event area.
+5. SCORING:
+   a. Low Score wins.
+   b. Each team’s Final Score is the better of the 2 Run Scores + Final Score Penalties.
+   c. Run Score = 100 + Distance Score + Time Score + Bonuses + Run Penalties
+   d. Distance Score = (2.0 pt/cm × Vehicle Distance) + (1.0 pt/cm x Bottle Distance).
+      i. For a Failed Run, Distance Score is 2500.
+      ii. If Water Bottle is not past Target Point or if the Moving Water Bottle Requirements are
+            violated, then the Bottle Distance is equal to 400.0 cm.
+   e. Time Score = Absolute value of (Target Time - Run Time) x 0.5 pt/sec
+      i. The Run Time will be recorded as 0.00 seconds for Failed Runs.
+   f. Bottle Bonus = -20 points if the Water Bottle is fully beyond the Bottle Line
+   g. Pusher Bonus = (Pusher Foremost Opening Width – 35.0) x 1.5 pt/cm
+   h. Event Time Bonus (National Only) = (Event Time Used − 480) / 30 points
+      i. This bonus will only be applied to the Final Score.
+   i. Run Penalties:
+      i. Competition Violation: 150 points added to the Run Score with one or more violations.
+      ii. Construction Violation: 300 points added to the Run Score with one or more violations.
+      iii. Non-modification Penalty: 50 points added to Run Score.
+      iv. Failed Runs can also be assessed Competition and/or Construction violations.
+
+                                                        ©2027 - C28
+                          ELECTRIC VEHICLE C (CONT.)
+                       See General Rules, Eye Protection & other Policies on www.soinc.org as they apply to every event.
+
+
+   j. Final Score Penalties: Vehicle not Impounded: 5000 points added to the team’s Final Score.
+   k. Two or more teams tied with 2 Failed Run scores, without Competition or Construction Violations, will
+      remain scored as ties. Other ties are possible.
+   l. Tiebreakers in order: 1. Better Distance Score of the scored run; 2. Lower Time Score of the scored run;
+      3. Better Vehicle Distance of the scored run; 4. Lower Bottle Pusher Measurement.
+6. SCORING EXAMPLES:
+   a. A Vehicle has 2 Successful runs during the team’s Event Time. Target time is 14 seconds. The Vehicle’s
+      Bottle Pusher had a Foremost Opening of 16.0 cm.
+      i. In the 1st run, the Vehicle stopped 17.6 cm from the Target Point with a Run Time of 12.27 seconds.
+          The Water Bottle was 10.6 cm from the Bottle Line but not past the line.
+      ii. In the 2nd run, the Vehicle stopped 22.5 cm from the Target Point with a Run Time of 16.37 seconds.
+
+
+
+
+                                   C
+          The Water Bottle was 12.1 cm from the Bottle Line and past the line.
+                  Base Score         = 100                                           100.00
+                  Distance Score = 17.6 cm × 2.0 pts/cm                               45.80
+                                           + 10.6 cm x 1.0 pts / cm
+                  Time Score            = abs(14 − 12.27) x 0.5 pts/sec                                   0.87
+                  Bottle Bonus          = Not Beyond                                                      0.00
+                  Pusher Bonus          = (16.0 cm – 35.0) x 1.5 pts /cm                                -28.50
+                  1st Run Score                                                                         118.17
+
+                  Base Score             = 100                                                          100.00
+                  Distance Score         = 22.5 cm × 2.0 pts/cm                                          57.10
+                                            + 12.1 x 1.0 pts / cm
+                  Time Score             = abs(14 − 16.37) x 0.5 pts/sec                                 1.19
+                  Bottle Bonus           = -20.0 (Beyond)                                              −20.00
+                  Pusher Bonus           = (16.0 cm – 35.0) x 1.5 pts /cm                              -28.50
+                  2nd Run Score                                                                        109.79
+
+                          Final Score = 2nd Run Score (Better Score) = 109.79 pts
+7. THE TRACK:
+   a. In-Person tournaments: The ES will supply and set up the Track.
+   b. Virtual tournaments: Team will supply the Track that fully complies with the requirements of this section.
+      Any deviation will be scored as a competition violation for all runs.
+   c. Track Definition:
+      i. The Track will be on a smooth, level, and hard surface.
+      ii. The Event Supervisors must mark the track as follows:
+          (1) Start Point – an approximately 5 cm × 2.5 cm tape with the Start Point marked at the center of
+                the tape.
+          (2) Target Point – an approximately 5 cm × 2.5 cm tape with the Target Point marked at the center
+                of the tape. The Target Point is placed at the Target Distance from the Start Point.
+          (3) Imaginary Center Line is a line not placed on the Track that starts at the Start Point and
+                extends through the Target Point.
+          (4) Bottle Line – an approximately 2.5 cm width tape placed at the Bottle Line Distance
+                beyond the Target Point. The Bottle Line is perpendicular and centered to the
+                imaginary center line. The Bottle line is at least 1.0 meter wide. The edge of the line
+                closest to the Target Point defines the line.
+
+
+                                                        ©2027 - C29
+                          ELECTRIC VEHICLE C (CONT.)
+                       See General Rules, Eye Protection & other Policies on www.soinc.org as they apply to every event.
+
+
+           (5) Water Bottle Location will be along the imaginary center line at different distances from
+               the Start Point based on the tournament level. For Regionals/Invitationals, the distance
+               is 2.0 m. For States, 3.0 m. For Nationals, 4.0 m. The non-optional Water Bottle is
+               placed centered at this location.
+      iii. The Track Area will have a width of 2.0 m and extend at least 1.0 m beyond the Target Point. More
+           space may be available but is not guaranteed.
+      iv. At the ES’s discretion, more than one Track may be used. If so, the team may choose which Track
+           they use but must use the same Track for both runs.
+
+
+
+
+                                   C
+8. DEFINITIONS:
+   a. Event Supervisor (ES) is responsible for ensuring the event runs correctly. The ES can assign one or more
+      event helpers to perform various competition tasks.
+   b. Batteries are commercial batteries, including rechargeables, labeled as AA batteries. Individual batteries
+      must have a voltage between 1.2 and 1.5 volts when fully charged. The battery label must be the
+      manufacturer’s original label and easily viewable by the ES. The batteries must be individual batteries
+      and removable from a battery pack. Batteries containing lithium or lead are prohibited.
+   c. Components can be, but not limited to, motors, gearboxes, motor controls, bodies, and chassis.
+   d. Electronic components can be, but not limited to, solid-state devices such as transistors, integrated
+      circuits, diodes, and microprocessors. Cameras of any type or purpose are prohibited. Sensors with
+      lasers are prohibited.
+   e. Vehicle Front is defined as the side facing the Target Point when the Vehicle is placed in the Ready-
+      to-Run position.
+   f. Measurement Point (MP) must meet the following requirements:
+      i. The MP may be made of any material (e.g. wooden skewer, toothpick, pencil, dowel). Examples
+           include but are not limited to: tip of a skewer/toothpick, tip of a pen, tip of a nail/paper clip/wire,
+           corner of a wedge, the edge of a dowel.
+      ii. The MP must be less than or equal to 1.0 cm above the Track.
+      iii. The MP must be the rearmost part of the Vehicle. The MP must be easily accessible for measurements
+           while the Vehicle is on the Track.
+   g. Tools may be electric and electronic tools. To qualify as a Tool, the item must not travel on the Track with
+      the Vehicle and cannot be used to align or aim the Vehicle.
+   h. Target Distance is selected by the ES and will be between 5.00 and 9.00 meters. At Regionals/Invitationals
+      the interval will be 0.25 m, for States 0.10 m, and for National 0.01 m.
+   i. Target Time is selected by the ES and will be between 10.0 and 20.0 seconds. The interval will be 0.5
+      seconds for all tournaments.
+   j. Bottle Line Distance is selected by the ES and will be between 1.00 and 3.00 meters. At Regionals/
+      Invitationals the interval will be 0.25 m, for States 0.10 m, and for National 0.01 m.
+
+
+
+
+                                                        ©2027 - C30
+                       ELECTRIC VEHICLE C (CONT.)
+                    See General Rules, Eye Protection & other Policies on www.soinc.org as they apply to every event.
+
+
+k. Water Bottle is a single-use clear plastic 16.9 oz (500ml) water bottle with a
+   diameter between 6 and 7 cm and a height between 18 and 22 cm. The bottle’s
+   weight will be between 80 to 100 grams. Metal (non-lead) BBs or similar will
+   be used to increase the bottle’s weight. Liquids cannot be used.
+l. Moving Water Bottle Requirements are defined as:
+   i. The Bottle must remain in contact with the event floor at all times. No
+        part of the Vehicle may extend under the Bottle.
+   ii. The Bottle must remain upright at all times.
+   iii. The Bottle may only be pushed.
+   iv. Only the Bottle Pusher may contact the Water Bottle. No part of the Bottle Pusher or Vehicle
+        beyond the measured opening may contact the Water Bottle. See example.
+m. Vehicle Distance is a point-to-point measurement from the Vehicle Measurement Point to the Target
+
+
+
+
+                                C
+   Point, measured to the nearest 0.1 cm.
+n. Water Bottle Distance is a point-to-line measurement from the Bottle Line to the Water Bottle’s
+   closest side, measured to the nearest 0.1 cm. Use a square to find the Bottle’s side. If the Bottle is
+   resting on top of the Bottle Line, then both the front and rear side of the Bottle is measured to the
+   Bottle Line and the smaller distance is used.
+
+
+
+
+o. Run Time begins when the team actuates the Vehicle and ends when the Vehicle comes to a complete
+   stop.
+   i. Any pause between the actuating the Vehicle and the Vehicle moving will be included in the
+        Run Time. This pause can be longer than 3 seconds.
+   ii. Recoil or oscillations will be included in the Run Time.
+   iii. The Run Time is recorded in seconds to the precision of the timing device used.
+   iv. Three timekeepers should be utilized with the middle time used as the official Run Time.
+p. Complete Stop is when the Vehicle is stationary for 3 or more seconds. The 3 seconds is not part of the
+   Run Time.
+q. Successful Run: Any run when the Vehicle moves before the end of the Event Time and is not a Failed
+   Run.
+r. Failed Run: A run will be scored as a Failed Run when one of the following occurs. Construction and/or
+   Competition Violations must still be recorded for Failed Runs.
+   i. The Vehicle travels the wrong direction from the Start Point.
+   ii. The Vehicle starts before the Event Supervisor is ready.
+   iii. The Vehicle’s distance(s) cannot be measured (e.g., the participants pick it up before it is measured).
+   iv. The team pushes the Vehicle down the track.
+   v. A team having only one successful run during the 8-minute Event Time will be assessed a Failed
+        Run for a 2nd run score. If the Vehicle does not move during the Event Time, the team will be
+        assessed 2 Failed Runs.
+   vi. Teams may request a run to be scored as a Failed Run. If this request is for the 2nd run, then
+        the team’s event time will stop.
+                           This event is sponsored by International Motors.
+
+
+
+
+                                                     ©2027 - C31
+

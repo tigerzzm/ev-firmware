@@ -6,7 +6,45 @@ Original design session: 2026-07-23 · Project: **EV for SO 2026**
 
 ---
 
-## Goal of the session
+## 2026-10-18 — 2027 rules released: the event changed (newest entry — read first)
+
+**Finding.** The 2027 Electric Vehicle rules are out, and the task is substantially different. First drafted from the scio.ly study guide; **later the same day checked against the official manual, now at `docs/rules/EV_Rules_2027.pdf`.** The summary held up; the manual settled two open questions (bottle position is to its centre; kit 3D-printed parts are exempt) and added a few procedure rules (ready position, no programming tools during a run, no floor tape).
+- The car must capture a **water bottle** on the centerline (at 2.0 / 3.0 / 4.0 m by level), push it **past a Bottle Line** 1–3 m beyond the Target, then **reverse** so the **rear** MP stops on the Target.
+- D range is now **5–9 m**. **The can bonus is gone.**
+- Scoring: 2.0 pt/cm vehicle + 1.0 pt/cm bottle + **0.5 pt/s** time. **−20** for a bottle fully past the line. **Pusher Bonus (W − 35)·1.5**. A lost or illegally moved bottle sets d_bottle = 400.
+- A **start delay counts as Run Time and may exceed 3 s**. Any mid-run stop ≥ 3 s ends the run.
+- Length ≤ 80 cm for the whole car including the pusher.
+- Kits are legal with ≥ 2 documented modifications, a self-built pusher, and no custom PCBs.
+- No AI during Event Time.
+
+**Decisions / design impact**
+1. **Path is now a straight line.** The arc-through-can-gate planner is removed. The servo steering stays, with a new job: straight-line heading/lateral hold for **narrow-pusher capture** (±1.25 cm slack at 4 m) and the rear MP's lateral error.
+2. **The final stop is on net encoder count** (`N_FINAL = D / M_PER_COUNT`). Because the free roller counts both ways, forward overshoot moves the bottle but not the final MP.
+3. **Timing by start delay.** The speed table is demoted to "make sure the motion fits inside T."
+4. **Gentle release** (decel < μg) keeps the bottle seated, so slide ≈ 0. Low contact (2–4 cm) and a slow capture prevent tipping and kicking.
+5. **IMU-loss abort → degrade to encoder-only.** A mid-track stop is now very costly.
+6. **Regearing (BOM.md) becomes a priority:** slow capture, push and reverse creep all sit in the 11.31:1 dead zone.
+7. **New mechanical items:** rigid frontmost pusher (one only, self-built) and a rigid rearmost MP.
+
+**Effect on the design docs**
+- `EV_Rules_Scoring_Model.md` — **rewritten** for 2027.
+- `EV_Detailed_Design.md` — **rewritten**: run geometry, state machine, control laws, calibration, test plan, mechanical additions. Electronics unchanged (RP2040, pin map in `src/config.h`).
+- `EV_Active_Tracking_Proposal.md` — sensor stack and servo-steered architecture still stand. Its **can-gate / arc rationale is superseded.**
+- `EV_Steering_Linkage_Design.md` — the drag link still wins (with a ~0° working angle, lash matters even more). **§2's 1–4° arc-angle numbers and §10's arc track-offset bug are moot** at κ ≈ 0. DELTA_MAX ≈ 0.12 rad and the servo-calibration notes still apply.
+- `EV_Design_Review.md` / `EV_How_It_Works.md` — describe the original 2026 kit code; historical.
+
+**Open questions for the ES / clarifications:** whether the Pusher Bonus applies on a failed-bottle or Failed Run; whether the Unphayzed kit includes a custom PCB.
+
+**Next steps**
+- Update firmware for 2027: `plan` (replaces `path`), `sm`, `steer` (reverse law), signed `odo`, `ui` entry of B, guards.
+- Design and prototype the pusher (cardboard first). Add the rear MP. Check the 80 cm length budget.
+- Fill in the Kit Modification Form. The Pico/IMU/servo retrofit covers the ≥ 2 functional modifications.
+
+---
+
+## 2026-07-23 — Original redesign session
+
+### Goal of the session
 Deep-research the Science Olympiad **Electric Vehicle** event for the **2026–2027 school year (= 2027 season)**, fully understand the rules, and modify the current design. User priorities: **stopping accuracy, timing accuracy, run-to-run consistency, and lower implementation complexity.**
 
 ---

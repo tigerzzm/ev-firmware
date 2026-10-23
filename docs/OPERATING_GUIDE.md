@@ -1,254 +1,304 @@
-# EV — Operating Guide
+# EV — Operating Guide (2027 bottle task)
 
 How to use the firmware once it's flashed: what to calibrate, in what order, and how
-to fire a run. For building/flashing see `BUILD_AND_FLASH.md`; for the electrical
-build see `WIRING_GUIDE.md`.
+to fire a run. For building and flashing, see `BUILD_AND_FLASH.md`. For the electrical
+build, see `WIRING_GUIDE.md`. The run itself is specified in
+`design/EV_Detailed_Design.md` and the rules in `rules/EV_Rules_2027.pdf`.
 
-> ⚠️ **A freshly flashed build cannot complete a run.** `M_PER_COUNT` and
-> `WHEELBASE_L_M` ship at `0.0` on purpose. Until you calibrate them the car reads
-> zero distance and never reaches its stop condition. **Part 1 is not optional.**
+> ⚠️ **A freshly flashed build will not arm.** `M_PER_COUNT`, `L_P_M`,
+> `ENC_FROM_MP_M` and `SERVO_US_PER_RAD` (`config.h` §1) ship at `0.0` on purpose.
+> Until you measure them, SET at "EV ready" shows `NOT CALIBRATED` and names the
+> missing one. **Part 1 is not optional.**
 
 ---
 
-## The two boot modes
+## What one run does
 
-Everything hangs off one decision at power-on:
+```
+START (pencil) → start delay → forward on the centerline → slow through the bottle
+→ push it past the Bottle Line → stop → reverse → rear MP stops on the Target
+```
 
-| Power on… | You get |
+- **The start delay** makes the total equal the Target Time. The rules count a
+  pre-motion pause as Run Time and allow it to exceed 3 s (§8.o.i).
+- **The final stop is on net encoder distance**, so pushing the bottle a little too
+  far moves the bottle (1 pt/cm) but not the final MP (2 pt/cm).
+- **If the IMU drops out mid-run**, the car keeps going with the steering centred,
+  using the encoder only. A stop mid-track would end the run (§8.p).
+
+---
+
+## The two ways into the bench menu
+
+| You do… | You get |
 |---|---|
-| **normally** | The run sequence — SETUP → ARMED → run |
-| **holding SET** | The bench calibration menu |
+| Power on **normally** | `EV ready` → SET runs, **hold SET 2 s** = bench menu |
+| Power on **holding SET** | The bench menu straight away |
 
-Calibration mode runs *before* the IMU is initialised, so it works with the IMU
-unwired. Normal boot does **not** — it halts with `IMU FAIL / check wiring`.
+If the IMU fails at boot, the bench menu still works. Runs go ahead too, but with the
+steering centred, after a `NO IMU` warning you confirm with SET. A run without
+steering still scores, while no run at all scores 2500.
 
 **Controls:** rotate the dial to change a value · press the dial to cycle the step
-size · **SET** confirms · **START** (the pencil trigger) fires the run.
-
-Every screen is also mirrored to the serial monitor, so the whole calibration
-sequence can be driven with the buttons alone if the LCD isn't wired yet.
+size · **SET** confirms · **START** (the pencil trigger) fires the run. Every screen is
+mirrored to the serial monitor.
 
 ---
 
 # Part 1 — Calibration (once, on the bench)
 
-Hold **SET** while powering on:
-
 ```
 Bench menu
-> 1 Encoder read
-  2 Motor test
-  3 Servo jog
-  4 PWM->speed
+> 1 Encoder read     5 Input test
+  2 Motor test       6 IMU heading
+  3 Servo jog        7 Steer response
+  4 PWM->speed       8 Exit to run
 ```
 
-Open the serial monitor before you start — most output goes there, not to the LCD.
-Do these **in order**; each one depends on the last.
+Open the serial monitor first; most output goes there. Do these **in order**.
 
-## 1.1 Encoder direction and `M_PER_COUNT`  ← the most valuable number in the project
+## 1.1 Encoder: direction, `M_PER_COUNT`, `M_PER_COUNT_REV` ← sets the 2 pt/cm score
 
-Menu **1 Encoder read**. Wheels on the ground.
+Menu **1 Encoder read**. Wheels on the ground. The LCD shows forward counts (`F`),
+reverse counts (`R`) and the net.
 
-1. Push the car **forward** a few cm. The count must go **UP**.
-   *Counting down? Flip `ENCODER_SIGN` in `config.h` §3 (or swap the green and
-   white wires — either works).*
-2. Mark a **5.000 m** line on the floor. Line the car up.
-3. Press **START** to zero.
-4. Push the car by hand to the far mark — smoothly, no wheel skid.
-5. Read the count. Serial also prints the constant for you:
+1. Push the car **forward** a few cm. `F` must go **up**. If `R` moves instead,
+   flip `ENCODER_SIGN` (`config.h` §3) or swap the green and white wires.
+2. Mark a **5.000 m** line. Press **START** to zero. Push the car forward to the far
+   mark, smoothly, with no skid. Serial prints `M_PER_COUNT=…`.
+3. Press **START** again at the far mark, then **pull it back** 5.000 m to the start
+   mark. Serial prints `M_PER_COUNT_REV=…`. Both values come from the *net* count since
+   the last START, so overshooting a mark and easing back doesn't skew them.
+4. Repeat 3–5 times and average each one.
 
-```
-[ENC] counts=+52310   M_PER_COUNT if this was 5.000 m = 0.00009558
-```
-
-**Sanity check: expect roughly 52,000 counts.** Around 26,000 means 2× decoding and
-~13,000 means 1× — in both cases check the B-phase wiring before trusting anything.
-
-Put the value in `src/config.h`, rebuild, reflash:
+**Sanity check: expect roughly 52,000 counts.** Around 26,000 means 2× decoding, and
+around 13,000 means 1×. In either case, check the B-phase wiring first.
 
 ```c
-constexpr float M_PER_COUNT = 0.00009558f;
+constexpr float M_PER_COUNT     = 0.00009558f;
+constexpr float M_PER_COUNT_REV = 0.00009561f;   // or 0 to use M_PER_COUNT
 ```
 
-Then come back and repeat step 4 — the readout should now show ≈ `5.0000 m`.
+**Both scales set your score, and the forward one matters more.** The final MP is
+forward counts × `M_PER_COUNT` minus reverse counts × `M_PER_COUNT_REV`. The forward
+leg is the long one (6–12 m) and the reverse leg the short one (0.2–2.6 m). So a 0.2 %
+error in `M_PER_COUNT` puts the final MP about 2 cm off, while the same error in
+`M_PER_COUNT_REV` costs only a few mm. Average several rolls for each.
 
-## 1.2 Wheelbase
+## 1.2 Car dimensions
 
-No firmware involved. Tape-measure **front axle centre → rear axle centre**, in metres:
+No firmware involved. Tape measure, in metres, along the car's centerline:
 
-```c
-constexpr float WHEELBASE_L_M = 0.xxx f;
-```
+| Constant | From → to |
+|---|---|
+| `L_P_M` | Pusher **contact face** (the deepest point of the mouth, where a seated bottle touches) → **rear MP tip** |
+| `ENC_FROM_MP_M` | Free-roller **contact patch** → **rear MP tip** |
+| `WHEELBASE_L_M` | Front axle centre → rear axle centre. **Only needed if you switch to pure pursuit** (§1.6) |
 
-While it's `0.0` the steering feedforward `atan(L·κ)` is identically zero and the
-controller runs on feedback alone.
+Also check the whole car, pusher and MP included, is **≤ 80.0 cm** long (§3.d) and
+**≤ 35.0 cm** wide (§3.e).
 
 ## 1.3 Motor and driver
 
-Menu **2 Motor test**. **Wheels off the ground for the first run.**
-
-Pick Forward, dial ~30%, press START. One 1.5 s burst reports:
+Menu **2 Motor test**. Do the **first** burst with the rear wheels off the ground, just
+to see the motor spin the right way without the car driving off. The encoder is on the
+free-rolling front wheel, so it reads 0 while the car is lifted. For the count and
+stiction checks below, put the car **on the floor** with clear space ahead. Pick a
+direction, dial ~30 %, START. Each 1.5 s burst reports the counts:
 
 ```
 [MOT] FWD pwm= 30%  counts=+7240  dist=+0.692 m
 ```
 
-Check all three:
+- Forward drives **forward** with **positive** counts; reverse drives backward with
+  negative counts. If not, swap motor M+/M−.
+- **Find stiction:** walk the PWM down until `NO MOVEMENT` appears in each direction.
+  Set `KICK_PWM` (`config.h` §2) comfortably above the higher of the two.
 
-- The car drives **forward** — if not, swap the motor's M+/M− leads
-- Counts are **positive** — should already be right from §1.1
-- Reverse also works — `driveBrake()` uses that same half-bridge, so if reverse is
-  dead, your stop is dead
+## 1.4 Servo centre, `SERVO_US_PER_RAD`, `STEER_DIR_SIGN`
 
-**Then find the dead-zone floor.** Walk the PWM down — 25, 20, 15, 12, 10 — until:
-
-```
-[MOT] FWD pwm= 10%  counts=+0     dist=+0.000 m   <-- NO MOVEMENT
-```
-
-Set `CREEP_PWM` (`config.h` §2) a couple of points **above** that threshold. It
-ships at `10.0f`, which is a guess.
-
-## 1.4 Servo centre and `SERVO_US_PER_RAD`
-
-Menu **3 Servo jog**. The dial moves the servo live; the dial button cycles the step
-(10 / 1 / 100 µs); SET exits and re-centres.
+Menu **3 Servo jog**. The dial moves the servo live, the dial button cycles the step,
+and SET exits and re-centres.
 
 > ⚠️ The linkage allows only **±7° of beam**. With the drag link attached, stop the
-> moment it stiffens — holding against a mechanical stop stalls the servo.
+> moment it stiffens.
 
-**With the horn OFF the drag link:**
+1. **Horn OFF the drag link:** jog to the true centre → `SERVO_CENTER_US`. Fit the horn,
+   attach the link, and trim the rest with the turnbuckle.
+2. **Scale:** from centre, jog a known offset (say +200 µs) and protractor the beam:
+   `SERVO_US_PER_RAD = Δµs ÷ Δbeam_rad`. Expect ~3500. It ships at 0, and the car won't
+   arm until it's set: a wrong value doesn't just steer weakly, it also throws off the
+   position estimate, because the estimator assumes the wheels turned as commanded.
+3. **Heading sign first:** menu **6 IMU heading**. Turn the car **left** by hand; the
+   heading must **increase**. If not, flip `HEADING_SIGN`. Do this before step 4: the
+   steer test can't tell a wrong heading sign from a wrong servo sign.
+4. **Direction:** menu **7 Steer response**, **FWD** mode. The LCD names the law that
+   config.h selects: `FWD STAN` or `FWD PP`. Turn the car **left** by hand.
+   The wheels must steer **right** (back toward the line). If they steer left, flip
+   `STEER_DIR_SIGN`.
+5. Press the dial for **REV** mode and turn the car left again. The wheels must steer
+   **left**. In reverse a left wheel turns the car right, back toward the aim. If FWD
+   was right but REV is wrong, **don't flip a sign**. That points at the reverse
+   steering or the rear geometry: `ENC_FROM_MP_M`, or `WHEELBASE_L_M` with pure
+   pursuit. The LCD shows `REV AIM`, `REV PP` or `REV STAN`; the check is the same
+   for all three.
 
-1. Jog to where the output shaft is truly centred → that's `SERVO_CENTER_US`
-2. Fit the horn at the spline tooth closest to correct
-3. Attach the drag link, take out the rest with the **turnbuckle** (the 20T spline
-   indexes in 18° steps ≈ 3.2° of beam — you cannot land centre on a tooth)
+## 1.5 Speed feedforward
 
-**Then measure the scale.** From centre, jog a known offset (say +200 µs), measure the
-beam angle with a protractor, and:
-
-```
-SERVO_US_PER_RAD = Δµs ÷ Δbeam_angle_in_radians
-```
-
-Expect roughly **3500**. It ships at `500.0f`, which is ~7× too small — that value
-carries no knowledge of the 1:5.6 drag-link reduction. Measure near ±3° of beam; the
-four-bar map is non-linear at the extremes.
-
-Last, confirm the **steering sign**: push the car off the arc by hand and check the
-servo steers it *back*, not further out. Flip `STEER_FB_SIGN` in `config.h` §3 if
-wrong.
-
-## 1.5 PWM → speed table
-
-Menu **4 PWM->speed**. Needs ~3.5 m of clear floor per point and `M_PER_COUNT` done.
-
-Dial a duty, press START. The car accelerates through 1 m (discarded — that's the
-launch transient), then times exactly 2.00 m:
+Menu **4 PWM->speed**. Needs `M_PER_COUNT` done and ~3.5 m of clear floor per point.
+Pick **Forward** or **Reverse**, dial a duty, START. It times exactly 2.00 m after a
+1 m warm-up:
 
 ```
-[CAL] pwm= 30%  v=0.842 m/s   (2.00 m in 2.38 s)
+[CAL] FWD pwm= 30%  v=0.842 m/s   (2.00 m in 2.38 s)
 ```
 
-Collect 20/30/40/50/60/80/100%. `pwmForSpeed()` currently just multiplies by
-`PWM_PER_MPS` (`config.h` §2, ships at `40.0f`) — a guess, **not** a measurement.
-Send me the table and I'll replace it with interpolation over your real data.
+Collect 5–6 points in each direction across 0.1–1.5 m/s. Fit a straight line,
+`PWM = offset + slope × v`, and enter `SPEED_FF_OFFSET_PCT` and
+`SPEED_FF_PCT_PER_MPS`. The PI speed loop corrects whatever the line misses, so it
+doesn't need to be perfect. If 0.1–0.3 m/s lands in the dead zone, regear: see
+`BOM.md` §Gearing.
 
-Two things to note from the table:
+## 1.6 Bottle and run tuning (floor tests)
 
-- **The duty that gives ~0.7 m/s** is your mid-range cruise. `CREEP_PWM` must sit
-  comfortably below it.
-- The rules envelope needs **0.42–1.17 m/s**. If those land below ~20% duty, you're
-  in the dead zone — see `BOM.md` §Gearing.
+**Choosing the steering laws** (`config.h` §4). Each leg has its own switch:
 
-## 1.6 The remaining signs
+| Leg | Setting | Options |
+|---|---|---|
+| Forward | `STEER_FWD_LAW` | `SteerLaw::Stanley` (default): lines up quickly, two gains. `SteerLaw::PurePursuit`: aims at a point `PP_LOOKAHEAD_M` ahead; smoother, one knob. |
+| Reverse | `STEER_REV_LAW` | `RevSteerLaw::AimAtTarget` (default): turns the car so its rear points at the Target; freezes the wheels for the last 15 cm. `RevSteerLaw::PurePursuit`: goal point `PP_LOOKAHEAD_M` **behind**; keeps steering right up to the stop. `RevSteerLaw::Stanley`: Stanley adapted for reverse, same gains as forward. |
 
-All four signs live together in **`config.h` §3**, each with its bench test in the
-comments:
+To run one method end to end, set both switches the same:
 
-- **`HEADING_SIGN`** — turn the car left by hand; heading should increase
-- **`DIAL_DIR_SIGN`** — turn the dial clockwise; the value should go up
-- (`ENCODER_SIGN` and `STEER_FB_SIGN` are covered in §1.1 and §1.4 above)
+| Run | `STEER_FWD_LAW` | `STEER_REV_LAW` |
+|---|---|---|
+| All Stanley | `SteerLaw::Stanley` | `RevSteerLaw::Stanley` |
+| All pure pursuit | `SteerLaw::PurePursuit` | `RevSteerLaw::PurePursuit` |
+
+A forward law can't just run backwards: in reverse a left wheel turns the car right.
+Reverse Stanley is the forward law with two changes: it measures the sideways error
+at the rear MP (the end that leads when backing up), and its heading term is flipped.
+Pure pursuit on either leg needs `WHEELBASE_L_M`, and the lookahead (0.8 m to start,
+shared by both legs) must be longer than the wheelbase; the build refuses otherwise.
+Stanley and aim-at-target don't need the wheelbase. All of them land within about
+1 cm in simulation, so try them on the floor and keep whichever gives the smaller
+sideways error at the bottle (forward) and at the Target (reverse).
+
+These follow `design/EV_Detailed_Design.md` §5, steps 4–10. The constants are all in
+`config.h` §4/§5:
+
+| Test | Sets |
+|---|---|
+| Straight-line hold forward, lateral error at 2/3/4 m | `STEER_KH`, `STEER_KC` (Stanley) or `PP_LOOKAHEAD_M` (pure pursuit) |
+| Capture at 2/3/4 m, many bottle brands | `V_CAPTURE`, `CAPTURE_LEAD_M`, pusher width |
+| Push at high speed without tipping | `V_PUSH_MAX`, `A_PUSH`, `A_RELEASE` |
+| Bottle slide after the stop | `S_SLIDE_M`, `A_PAST_M` |
+| Reverse stop scatter | `STEER_KR` (aim-at-target) or `PP_LOOKAHEAD_M` (pure pursuit), `V_REV_END`, `FINAL_BRAKE_PWM` |
+| Motion time over many runs | `T_BIAS_S` (printed after each run) |
 
 ---
 
 # Part 2 — Firing a run
 
-Normal power-on (don't hold SET). Requires the IMU wired and working.
-
 ## 2.1 Enter the targets
 
-Four screens, dial to set, **SET** to advance:
+Short-press **SET** at `EV ready`, then six screens. Dial to set, SET to advance. Every
+value starts from what the last run used.
 
 | Screen | What | Range |
 |---|---|---|
-| `Dist:` | Target Distance, announced after impound | 7.00–10.00 m |
-| `Time:` | Target Time | 10.0–20.0 s |
-| `Arc preset` | Gate bulge — automatic, just shows the value | — |
-| `Ofs:` | **Stop correction. `0.000` on run 1.** | ±0.50 m |
+| `D:` | Target Distance | 5.00–9.00 m |
+| `B:` | Bottle Line Distance past the Target | 1.00–3.00 m |
+| `T:` | Target Time | 10.0–20.0 s (0.5 s steps) |
+| `Bottle level` | Regional 2.0 m / State 3.0 m / National 4.0 m | menu |
+| `MPofs:` | Final MP correction. **`0.000` on run 1** | ±0.50 m |
+| `BtlOfs:` | Bottle push correction. **`0.000` on run 1** | ±0.50 m |
 
-Press the dial to cycle the step size — coarse to get close, fine for the last
-digit. Distance goes down to 0.01 m for nationals.
-
-Serial confirms the plan:
+Press the dial to cycle the step size (0.25 regional → 0.10 state → 0.01 nationals).
+The LCD then shows the forward stop, reverse length and start delay, and serial prints
+the full plan:
 
 ```
-[SM] SETUP D=8.50 m T=15.0 s h=0.92 m -> R=9.68 L=8.766 k=0.1033
-[SM] stopOffset=+0.000 m -> stopTarget=8.766 m; timeout 35.0 s
+[SM] PLAN D=7.00 B=2.00 T=15.0 bottle@2.0  mpOfs=+0.000 btlOfs=+0.000
+[SM]   contact@1.417  slow@1.267  push@1.447  xF=8.500  xFinal=7.000  rev=1.500  path=10.00 m
+[SM]   v cruise=1.60 push=1.06 rev=0.80 m/s  motion~15.00 s  delay=0.00 s
 ```
+
+(This example uses `L_P_M = 0.55`.) The plan uses the nominal speeds when they fit.
+Otherwise it speeds up only as much as needed to finish on T: cruise and reverse
+first (up to their `_MAX`), and the push only if that isn't enough, because the push
+carries the bottle. Capture speed never changes.
+
+`T SHORT` on the LCD means the run can't finish inside T even at the maximum safe
+speeds. It runs anyway. Being late costs only 0.5 pt/s, about 1 pt on average.
 
 ## 2.2 Arm
 
-The LCD shows:
-
 ```
-ARMED
-waiting START
+ARMED  SET=back
+D7.00B2.00T15.0
 ```
 
-Pose is zeroed and heading reference captured **at this moment** — so the car must be
-sitting in its final start position, pointed down the track, before you press START.
-The servo pre-aims to the arc tangent.
+Place the car with the **rear MP over the Start dot** (within ~1 cm) and the body on
+the Target side of it (§4.d.vii.1), pointed along the centerline. Encoder, pose and
+heading are zeroed **at the pencil press**, so adjusting the car while ARMED is fine.
+SET backs out to `EV ready`. Short-press SET there to re-enter the targets (your
+values are kept).
+
+From the pencil press until the car moves, the motor is braked, so the car can't
+roll off the Start dot during the start delay.
+
+If the top line changes to `ARMED  NO IMU!`, the heading sensor isn't answering. The
+run still works, but with the steering centred. Back out with SET and check the IMU
+wiring if you have time.
 
 ## 2.3 Fire
 
-**Press START with the #2 unsharpened pencil, vertical motion only.** That is the
-rules-legal trigger; starting it by hand is a Competition violation (+150/run).
+**Press START with the #2 unsharpened pencil, vertical motion only.** Run Time starts
+now. The LCD counts the delay down. Then the car drives, captures, pushes, turns around
+(0.4 s) and reverses onto the Target. The LCD stays still while the car is moving;
+that's deliberate, so a screen write never delays a stop.
 
-The car launches, follows the arc, creeps the last 20 cm, and brakes.
+**SET aborts at any point.** The car brakes and holds.
 
-**SET aborts at any point during the run.**
+After every stop the car **stays braked, with the wheels where they ended**, until you
+start the next run. That's on purpose: it may still be on the track waiting to be
+measured, and releasing the drive or re-centring the steering could nudge the MP.
 
 ## 2.4 Read the result
 
+The LCD shows the encoder's MP error and the run time, then the forward-stop error:
+
 ```
-[SM] DONE  finalArc=8.771 m (target 8.766)  time=14.82 s (target 15.0)  abort=none
-[SM] next run: measure MP->Target, enter negated as Ofs (now +0.000 m)
+MP +0.4cm t15.03
+F +1.2cm ok
 ```
 
-> ⚠️ **`finalArc` does not tell you your score.** It's the encoder reading, and the
-> car stopped *because* the encoder hit the target — so it always lands near
-> `stopTarget` no matter where the vehicle physically is.
+Serial adds the planned and reached stops, the motion time (with a suggested
+`T_BIAS_S`) and a timeline of every state change.
+
+> ⚠️ **The encoder numbers are not your score.** The car stopped *because* the encoder
+> hit its target. Only a tape measure tells you where the MP and the bottle really are.
 
 ## 2.5 Run 2 — use run 1 as calibration
 
-The rules give you two runs and keep the better. Run 1 is a free measurement.
+The better of the two runs counts, so run 1 is a free measurement. Measure with a tape,
+SET at the result screen, and adjust the two offsets (the targets carry over). Each
+correction is a **change to the value already on the dial**, which starts at what the
+last run used. Serial prints the new values for you after every run.
 
-1. **Measure the physical error with a tape**: Measurement Point → Target Point
-2. Power-cycle or let it loop back to SETUP
-3. Re-enter the same D and T
-4. At `Ofs:`, enter that error **negated**
+| Last run finished | Change the offset by | From 0 that is |
+|---|---|---|
+| Rear MP 3 cm **beyond** the Target (bottle side) | `MPofs` − 0.030 | `-0.030` |
+| Rear MP 2 cm **short** (Start side) | `MPofs` + 0.020 | `+0.020` |
+| Bottle's near side 2 cm short of where you want it | `BtlOfs` + 0.020 | `+0.020` |
+| Bottle not fully past the line | `BtlOfs` + the shortfall + 0.020 | |
 
-| Run 1 finished | Enter |
-|---|---|
-| 3 cm **past** the target | `-0.030` |
-| 3 cm **short** | `+0.030` |
+Example: run 1 used `MPofs -0.020` and the MP still ended 1 cm beyond the Target.
+Enter `-0.030`, not `-0.010`.
 
-The offset adjusts the stop distance **only** — it does not re-plan the arc, so your
-line through the can gate is unchanged. One number absorbs every fixed error at once:
-MP offset, encoder track offset, and brake overshoot.
-
-The offset carries over between runs, so you nudge rather than re-entering from zero.
+Each offset moves only its own stop: `MPofs` never changes the push, and `BtlOfs` never
+changes the final MP position.
 
 ---
 
@@ -256,21 +306,26 @@ The offset carries over between runs, so you nudge rather than re-entering from 
 
 | Situation | Do this |
 |---|---|
-| Enter calibration | Hold **SET** while powering on |
+| Bench menu | Hold **SET** 2 s at `EV ready`, or hold SET at power-on |
 | Abort a run | Press **SET** |
-| Zero the encoder readout | Press **START** |
-| Car won't stop | `M_PER_COUNT` is still `0.0` |
-| `IMU FAIL` at boot | IMU not wired — use calibration mode meanwhile |
+| `NOT CALIBRATED` | Measure the constant it names (`config.h` §1) |
+| `PLAN ERROR` | It names the problem (e.g. `L_P > 80cm`) |
+| `ABORT by SET` | You pressed SET |
+| `ABORT wrong way` | Encoder sign flipped, or the car rolled backward at launch |
+| `ABORT no motion` | No encoder count for 0.5 s while driving, even after a re-kick: the encoder is unplugged or dead, **or** the car is stuck (check both) |
+| `ABORT stall` | Counting, but less than 1 cm of progress in 2 s: motor too weak, car stuck |
+| `NO COUNTS` / `ask ES: moved?` | The motor drove but the encoder saw almost nothing, so the firmware can't tell whether the car moved. Ask the event supervisor whether it counts as a run, then check the encoder |
+| `NO RUN (no move)` | Aborted before the car moved. Under the rules no run occurred (§4.d.vii.4.a): fix it and go again |
+| `IMU!` after a run | Heading dropped mid-run; it finished encoder-only |
 | Boot banner reappears mid-run | Brownout, not a firmware bug — see the servo rail cap |
-| Dial counts backwards | Flip `DIR_SIGN` in `ui.cpp` |
-| Encoder counts backwards | Swap the green and white wires |
-| Car drives backwards | Swap motor M+/M− |
+| Dial counts backwards | Flip `DIAL_DIR_SIGN` (`config.h` §3) |
 
 ## Safety
 
-- **Wheels off the ground** until `M_PER_COUNT` is calibrated. Until then the run
-  loop cannot exit on distance and only the watchdog stops the car
-  (`2 × targetT + 5 s`).
-- **SET is the kill switch.** Know where it is before you power up.
-- Don't dry-steer with the wheels down until the servo rail has its capacitor —
-  stationary scrub is the servo's peak-current moment.
+- **Keep the wheels off the ground until `M_PER_COUNT` is calibrated.** The firmware
+  refuses to arm without it, but the bench tools still drive.
+- **SET is the kill switch.** Watchdogs also stop the car if it goes the wrong way,
+  loses its encoder (0.5 s), stalls (2 s), or overruns its planned time. If it sticks
+  for 0.15 s at a slow speed, it re-applies the stiction kick first.
+- No AI tools during Event Time (§4.c.vii), and no programming tools between START and
+  retrieving the car (§4.d.vii.5).

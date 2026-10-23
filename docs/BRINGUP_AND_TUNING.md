@@ -1,5 +1,12 @@
 # EV — Bench Bring-up & Tuning
 
+> ⚠️ **2026-era document.** The firmware was rewritten for the 2027 bottle task
+> (2026-10-18). Steps 0–4 and 6 still describe the hardware bring-up correctly.
+> Steps 5 and 7–9 describe the old arc task: `STEER_FB_SIGN`, `CREEP_*`,
+> `GATE_BULGE_H_M` and arc hold no longer exist (steering direction is now
+> `STEER_DIR_SIGN`), and `WHEELBASE_L_M` is needed only for pure-pursuit steering.
+> **Use `OPERATING_GUIDE.md` for the current calibration order and run procedure.**
+
 The path from "it powers on" to "it runs the arc and stops on target." Do the steps
 **in order** — each nails down a constant or a sign that later steps depend on.
 **Wheels off the ground through step 6.** Keep the serial monitor open the whole time.
