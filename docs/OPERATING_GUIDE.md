@@ -19,8 +19,10 @@ START (pencil) → start delay → forward on the centerline → slow through th
 → push it past the Bottle Line → stop → reverse → rear MP stops on the Target
 ```
 
-- **The start delay** makes the total equal the Target Time. The rules count a
-  pre-motion pause as Run Time and allow it to exceed 3 s (§8.o.i).
+- **There is no start delay** (`START_SETTLE_S` = 0): the motor starts right after the
+  press. The speeds are chosen so the driving fills the Target Time: slower when there
+  is time to spare, faster when T is tight. Only if the car is at its slowest speeds
+  and still early does it wait at the start.
 - **The final stop is on net encoder distance**, so pushing the bottle a little too
   far moves the bottle (1 pt/cm) but not the final MP (2 pt/cm).
 - **If the IMU drops out mid-run**, the car keeps going with the steering centred,
@@ -49,10 +51,11 @@ mirrored to the serial monitor.
 
 ```
 Bench menu
-> 1 Encoder read     5 Input test
-  2 Motor test       6 IMU heading
-  3 Servo jog        7 Steer response
-  4 PWM->speed       8 Exit to run
+> 1 Encoder read     6 IMU heading
+  2 Motor test       7 Steer response
+  3 Servo jog        8 Sim dry run
+  4 PWM->speed       9 Exit to run
+  5 Input test
 ```
 
 Open the serial monitor first; most output goes there. Do these **in order**.
@@ -127,8 +130,10 @@ and SET exits and re-centres.
    attach the link, and trim the rest with the turnbuckle.
 2. **Scale:** from centre, jog a known offset (say +200 µs) and protractor the beam:
    `SERVO_US_PER_RAD = Δµs ÷ Δbeam_rad`. Expect ~3500. It ships at 0, and the car won't
-   arm until it's set: a wrong value doesn't just steer weakly, it also throws off the
-   position estimate, because the estimator assumes the wheels turned as commanded.
+   arm until it's set. Neither servo number has to be exact: the position estimate
+   uses only the encoder and the IMU heading, never the servo command, so a wrong
+   value just makes the steering a little softer or sharper. Within ~20 µs of centre
+   and ±20% on the scale is fine (host sim: ~1 cm off the line).
 3. **Heading sign first:** menu **6 IMU heading**. Turn the car **left** by hand; the
    heading must **increase**. If not, flip `HEADING_SIGN`. Do this before step 4: the
    steer test can't tell a wrong heading sign from a wrong servo sign.
@@ -145,19 +150,29 @@ and SET exits and re-centres.
 
 ## 1.5 Speed feedforward
 
-Menu **4 PWM->speed**. Needs `M_PER_COUNT` done and ~3.5 m of clear floor per point.
-Pick **Forward** or **Reverse**, dial a duty, START. It times exactly 2.00 m after a
-1 m warm-up:
+Menu **4 PWM->speed**. Needs `M_PER_COUNT` done and ~5 m of clear floor per point.
+Pick **Forward** or **Reverse**, dial a duty, START. It counts down 5 s (step back;
+SET cancels), then times exactly 2.00 m after a 1 m warm-up, then eases down like a
+run's push end (`A_RELEASE` to `V_PUSH_END`, about 1.6 m from 1.4 m/s) and stops. The
+speed stays on the LCD until you press SET or START:
 
 ```
 [CAL] FWD pwm= 30%  v=0.842 m/s   (2.00 m in 2.38 s)
 ```
 
-Collect 5–6 points in each direction across 0.1–1.5 m/s. Fit a straight line,
-`PWM = offset + slope × v`, and enter `SPEED_FF_OFFSET_PCT` and
-`SPEED_FF_PCT_PER_MPS`. The PI speed loop corrects whatever the line misses, so it
-doesn't need to be perfect. If 0.1–0.3 m/s lands in the dead zone, regear: see
+Do it on a **charged pack**: a tired one needs ~10% more power for the same
+speed. Collect points from 11% up to the top speed and enter each one as
+`{speed, PWM}` in `SPEED_FF_TABLE`, speeds increasing; the car interpolates
+between them. It's a table, not a line, because the speed flattens hard above
+~1.2 m/s (top ~2 m/s). Forward and reverse share it. The PI speed loop corrects
+whatever the table misses, so it doesn't need to be perfect. If 0.1–0.3 m/s lands in the dead zone, regear: see
 `BOM.md` §Gearing.
+
+**Catch test.** Because of the gentle ending, menu 4 also tests catching the bottle
+at speed: stand the bottle about 1.3 m ahead of the pusher, in line with the mouth,
+and film the hit from the side in slow motion. The bottle must stay upright, on the
+floor and in the mouth (§3.l). Menu 4 does not steer, so a bottle that hits the
+edge of the mouth means re-aim, not a failed catch.
 
 ## 1.6 Bottle and run tuning (floor tests)
 
@@ -196,6 +211,33 @@ These follow `design/EV_Detailed_Design.md` §5, steps 4–10. The constants are
 | Reverse stop scatter | `STEER_KR` (aim-at-target) or `PP_LOOKAHEAD_M` (pure pursuit), `V_REV_END`, `FINAL_BRAKE_PWM` |
 | Motion time over many runs | `T_BIAS_S` (printed after each run) |
 
+## 1.7 Bench dry run (menu 8), wheels up
+
+A whole run with the car on a stand: target entry, plan, ARMED, the start delay,
+cruise, capture, push, turnaround, reverse, the stop and the report. With the
+wheels up the encoder can't turn (it rides the undriven front wheels), so a normal
+run would abort `no motion` half a second after launch. The dry run replaces the
+encoder with a model of the car's speed driven by the motor command (`config.h`
+§7, `SIM_*`). Everything else is the real run code.
+
+1. **Lift the car so no wheel touches anything.** The motor really runs.
+2. Menu **8 Sim dry run**. Enter the targets as for a real run (they carry over to
+   the next run). The plan screen follows.
+3. `SIM: WHEELS UP?` → **SET** to go on, hold SET to back out.
+4. `SIM ARMED` → press **START**. Watch the delay count down, the motor drive
+   forward, slow, brake for the turnaround, and drive in reverse to the stop.
+   **SET** aborts at any time.
+5. The result shows `SIM…` on the LCD and `SIM DRY RUN DONE` on serial with the
+   event log. SET returns to the bench menu.
+
+What it shows: the sequence, the motor directions, the timing against T, and the
+event log. What it doesn't: anything about accuracy, since the distance is a
+model. Its times are never used for `T_BIAS_S`. Turn the car by hand while it
+"drives" and the steering corrects, as it would on the floor.
+
+If the **real** encoder sees 2 cm of travel (`SIM_REAL_MOTION_M`), the car is on
+the floor: it brakes and shows `ABORT on floor?`.
+
 ---
 
 # Part 2 — Firing a run
@@ -213,6 +255,8 @@ value starts from what the last run used.
 | `Bottle level` | Regional 2.0 m / State 3.0 m / National 4.0 m | menu |
 | `MPofs:` | Final MP correction. **`0.000` on run 1** | ±0.50 m |
 | `BtlOfs:` | Bottle push correction. **`0.000` on run 1** | ±0.50 m |
+| `BtlPast:` | How far past the Bottle Line to aim the bottle's near side (the margin), **in cm**. Starts at `0.0`: aimed at the line, the bottle still ends a little past it (it carries on past the pusher) | 0.0–15.0 cm |
+| `Aim:` | Aim trim, **degrees, + = left**: the car steers onto a line this far left of where it pointed at START. Corrects a fixed sight or thrust-line angle. Starts at `0.55`. After a run, add 0.115° per cm (at D 5 m; 0.573/D in general) the MP ended **right** of the Target, subtract per cm **left**; the report prints the number | −3.00 to +3.00° |
 
 Press the dial to cycle the step size (0.25 regional → 0.10 state → 0.01 nationals).
 The LCD then shows the forward stop, reverse length and start delay, and serial prints
@@ -242,6 +286,10 @@ D7.00B2.00T15.0
 Place the car with the **rear MP over the Start dot** (within ~1 cm) and the body on
 the Target side of it (§4.d.vii.1), pointed along the centerline. Encoder, pose and
 heading are zeroed **at the pencil press**, so adjusting the car while ARMED is fine.
+The motor starts right away. (`START_SETTLE_S` > 0 would make it stand braked that
+long and zero the heading **again** before driving; logged runs showed the press
+doesn't rock the car, so it is 0.) **Pull the pencil clear as soon as you press:**
+the car leaves immediately.
 SET backs out to `EV ready`. Short-press SET there to re-enter the targets (your
 values are kept).
 
@@ -277,6 +325,42 @@ F +1.2cm ok
 Serial adds the planned and reached stops, the motion time (with a suggested
 `T_BIAS_S`) and a timeline of every state change.
 
+Before that, serial prints the **odometry + steering record**: one row every 50 ms
+of the motion (`TELEM_PERIOD_MS`) between `[TEL] BEGIN CSV` and `[TEL] END CSV`.
+Copy it into a spreadsheet or plot it:
+
+| Column | Meaning |
+|---|---|
+| `t_ms`, `state` | time since the pencil press; CRUISE / CAPTURE / PUSH / TURN / REVERSE / STOP |
+| `x_mp_m`, `v_mps`, `vref_mps`, `pwm_pct` | encoder MP position, measured speed, speed target, motor duty |
+| `roller_x_m`, `y_m`, `heading_deg` | the pose: where the car thinks it is, + y = left of the line |
+| `steer_deg` | steering command, + = wheels left |
+| `steer_ok`, `stuck`, `launch` | 0 = steering off (no usable heading), stall boost active, launch kick active |
+
+Under it, a summary says whether the steering ran the whole time, how far off the
+line the pose went, and suggests a `SERVO_CENTER_US` trim from the average steering
+command on the steady cruise.
+
+**Getting the logs after untethered runs.** The car keeps the **last 5 runs** in RAM
+(`RUN_HISTORY`), each with its settings, record and event log, until the car is
+switched off. So you can do several runs unplugged and read them together. At the
+result screen (or `EV ready`), plug in USB — the Pico does not reset — and run,
+from the repo:
+
+```
+python3 tools/capture_run.py --watch
+```
+
+then press **START** on the car. The firmware prints every stored run, oldest
+first, and the script saves each as `run_logs/<time>-r<N>.log` (everything),
+`.csv` (the record) and `.html` (the plots), where N is the run's number since
+power-on. A run it already has is skipped, so pressing START again never makes
+duplicates. With `--watch` it keeps running: start it once per session. The Pico
+only sends while a program has the port open, so the script (or a serial
+monitor) must be running at that moment. **Don't switch the car off** between
+the runs and the read-out, and **write down the tape numbers per run** — the 6th
+run overwrites the 1st.
+
 > ⚠️ **The encoder numbers are not your score.** The car stopped *because* the encoder
 > hit its target. Only a tape measure tells you where the MP and the bottle really are.
 
@@ -293,6 +377,11 @@ last run used. Serial prints the new values for you after every run.
 | Rear MP 2 cm **short** (Start side) | `MPofs` + 0.020 | `+0.020` |
 | Bottle's near side 2 cm short of where you want it | `BtlOfs` + 0.020 | `+0.020` |
 | Bottle not fully past the line | `BtlOfs` + the shortfall + 0.020 | |
+
+`BtlPast` is where you **want** the bottle; `BtlOfs` corrects where it actually went.
+After a run: new `BtlOfs` = old `BtlOfs` + (`BtlPast` − measured bottle past the line),
+in metres (`BtlPast` 2.0 cm = 0.020 m).
+Change `BtlPast` only to take more or less risk with the −20 bonus.
 
 Example: run 1 used `MPofs -0.020` and the MP still ended 1 cm beyond the Target.
 Enter `-0.030`, not `-0.010`.

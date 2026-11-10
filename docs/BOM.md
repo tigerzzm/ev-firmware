@@ -90,7 +90,7 @@ with its speed loop and stall kick, but a **9T pinion (16.2:1)** would lift thos
 | 21T + 9T/87T spur | 25.1:1 | 2.60 m/s | 13–62% (spur may not fit) |
 
 Re-measure on the bench with the new motor: stiction (menu 2 → `KICK_PWM`) and the
-speed line (menu 4 → `SPEED_FF_OFFSET_PCT`, `SPEED_FF_PCT_PER_MPS`). Values from the
+speed curve (menu 4 → `SPEED_FF_TABLE`). Values from the
 21T no longer apply.
 
 **Do NOT** pair a 35T with a 3.75:1 axle reduction: that caps the car at 0.92 m/s and

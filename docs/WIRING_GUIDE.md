@@ -4,7 +4,7 @@ Wire in this order: **power tree first, then grounds, then signals, then the
 pre-power checklist, and only then connect the battery.** A visual is in
 `wiring_diagram.html` (open it in a browser).
 
-> ⚠️ **The one rule that saves parts:** the Pico 2 (RP2350) is 3.3 V logic and is
+> ⚠️ **The one rule that saves parts:** the Pico (RP2040; a Pico 2 has the same pinout) is 3.3 V logic and is
 > **NOT 5 V-tolerant.** Any 5 V on a GPIO can damage the chip. The two places this
 > bites you are the **encoder** (if it's a 5 V unit) and the **LCD** (PCF8574
 > backpacks are often run at 5 V). Both are handled below.
@@ -137,7 +137,7 @@ check, along with the contrast pot). No conflict with the BNO085 at 0x4A.
 
 | Servo wire | Connect to | Note |
 |---|---|---|
-| Signal (usually orange/white) | Pico **GP5** (pin 7) | 50 Hz, 1000–2000 µs. |
+| Signal (usually orange/white) | Pico **GP5** (pin 7) | 50 Hz. Firmware clamps every pulse to 1200–1800 µs (`SERVO_MIN_US`/`SERVO_MAX_US`). |
 | V+ (red) | **5 V** rail (buck) | **Not** a Pico pin — servos spike >1 A. |
 | GND (brown/black) | common | |
 
@@ -225,4 +225,4 @@ Only after all eight pass: connect the battery, then move to `BUILD_AND_FLASH.md
 *Verified electrical facts — sources:*
 - *Adafruit BNO085 pinouts (addr 0x4A, VIN 3–5 V, onboard 10 K I2C pull-ups, level-shifted I2C):* https://learn.adafruit.com/adafruit-9-dof-orientation-imu-fusion-breakout-bno085/pinouts
 - *BTS7960 / IBT-2 module (VCC 5 V logic, inputs accept 3.3 V, motor 6–27 V / 43 A):* https://docs.cirkitdesigner.com/component/d7d3f050-2543-47b2-872e-dab4f5f1d532/bts7960-ibt-2-motor-driver
-- *Raspberry Pi Pico 2 pinout (physical pin numbers):* https://pico2.pinout.xyz/
+- *Raspberry Pi Pico pinout (physical pin numbers; identical on Pico 1 and Pico 2):* https://pico.pinout.xyz/

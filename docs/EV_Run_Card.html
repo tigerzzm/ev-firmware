@@ -255,6 +255,8 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--rule)
           <dt>Level</dt><dd>Regional 2.0 m · State 3.0 m · National 4.0 m</dd>
           <dt>MPofs</dt><dd>0.000 on run 1 (see Run 2 corrections)</dd>
           <dt>BtlOfs</dt><dd>0.000 on run 1</dd>
+          <dt>BtlPast</dt><dd>bottle margin past the line, cm (starts 0.0)</dd>
+          <dt>Aim</dt><dd>aim trim, deg, + = left (starts 0.55); +0.573/D per cm the MP ended right</dd>
         </dl>
       </div>
       <div class="lcd" role="img" aria-label="LCD: D:7.00m. Inc: 0.250"><span>D:7.00m</span><span>Inc: 0.250</span></div>
@@ -262,9 +264,9 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--rule)
     <li>
       <div class="step-body">
         <h3>Check the plan</h3>
-        <p>Forward stop (<code>xF</code>), reverse length (<code>rev</code>) and start delay (<code>dly</code>), in metres and seconds. <b>T SHORT</b> means it will finish late. It still runs; late costs 0.5 pt/s.</p>
+        <p>Forward stop (<code>xF</code>) and reverse length (<code>rev</code>) in metres, and the estimated Run Time (<code>est</code>) in seconds. <b>ok</b> means it fits in T; <b>LATE</b> means it will finish at <code>est</code>, after T. It still runs; late costs 0.5 pt/s.</p>
       </div>
-      <div class="lcd" role="img" aria-label="LCD: xF 8.50 rev1.50. dly 0.0s ok"><span>xF 8.50 rev1.50</span><span>dly 0.0s ok</span></div>
+      <div class="lcd" role="img" aria-label="LCD: xF 8.50 rev1.50. est 15.0s ok"><span>xF 8.50 rev1.50</span><span>est 15.0s ok</span></div>
     </li>
     <li>
       <div class="step-body">
@@ -375,7 +377,7 @@ ask ES: moved?</td><td>The motor drove but the encoder saw almost nothing, so th
   </div>
   <p>Every position is the rear MP's distance from the Start, along the centerline. Core 1 tracks position and heading 500 times a second. Core 0 runs the sequence and decides speed and steering every 2 ms.</p>
   <pre class="formula">contact = bottle − bottle radius − L_P       pusher reaches the bottle
-xF      = D + B + 5 cm + BtlOfs − L_P       forward stop: bottle's near side 5 cm past the line
+xF      = D + B + BtlPast + BtlOfs − L_P    forward stop: bottle's near side BtlPast past the line
 xFinal  = D + MPofs                         final stop: rear MP on the Target
 delay   = T − estimated driving time        the car waits this long, then drives</pre>
   <div class="table-wrap">
@@ -385,7 +387,7 @@ delay   = T − estimated driving time        the car waits this long, then driv
         <tr><td><b>START</b></td><td>Run Time starts. Distance and heading are zeroed.</td><td>—</td></tr>
         <tr><td><b>DELAY</b></td><td>Stands still, counting down</td><td>0</td></tr>
         <tr><td><b>CRUISE</b></td><td>Drives toward the bottle on the centerline</td><td>0.6 m/s, up to 1.6</td></tr>
-        <tr><td><b>CAPTURE</b></td><td>The last 15 cm before the bottle and first contact</td><td>0.2 m/s</td></tr>
+        <tr><td><b>CAPTURE</b></td><td>The last 15 cm before the bottle and first contact</td><td>up to 1.0 m/s (never faster than the cruise or push)</td></tr>
         <tr><td><b>PUSH</b></td><td>Pushes, then eases to a stop at xF so the bottle stays seated</td><td>0.6 m/s, up to 1.5; ends at 0.06</td></tr>
         <tr><td><b>TURN</b></td><td>Motor braked, wheels held still</td><td>0 for 0.4 s</td></tr>
         <tr><td><b>REVERSE</b></td><td>Backs up toward the Target</td><td>0.35 m/s, up to 0.8; ends at 0.05</td></tr>
@@ -457,7 +459,7 @@ delay   = T − estimated driving time        the car waits this long, then driv
   <p>Do these in order; each step depends on the ones before it. Put each value in <code>src/config.h</code>, rebuild and reflash. Open the bench menu by holding SET at power-on, or for 2 s at <b>EV ready</b>.</p>
   <ul class="menu" aria-label="Bench menu">
     <li>1 Encoder read</li><li>2 Motor test</li><li>3 Servo jog</li><li>4 PWM-&gt;speed</li>
-    <li>5 Input test</li><li>6 IMU heading</li><li>7 Steer response</li><li>8 Exit to run</li>
+    <li>5 Input test</li><li>6 IMU heading</li><li>7 Steer response</li><li>8 Sim dry run</li><li>9 Exit to run</li>
   </ul>
   <div class="table-wrap">
     <table class="cal">
@@ -474,7 +476,7 @@ delay   = T − estimated driving time        the car waits this long, then driv
         <tr><td class="num">9</td><td><code>STEER_DIR_SIGN</code></td><td>Menu 7, FWD: turn the car left; wheels must steer right. REV: wheels left.</td><td class="value"><span class="box" aria-hidden="true"></span> ok</td></tr>
         <tr><td class="num">10</td><td><code>DIAL_DIR_SIGN</code></td><td>Turn the dial clockwise; the value must go up</td><td class="value"><span class="box" aria-hidden="true"></span> ok</td></tr>
         <tr><td class="num">11</td><td><code>KICK_PWM</code></td><td>Menu 2: comfortably above the lowest duty that moves the car, both ways</td><td class="value"></td></tr>
-        <tr><td class="num">12</td><td><code>SPEED_FF_OFFSET_PCT</code><br><code>SPEED_FF_PCT_PER_MPS</code></td><td>Menu 4: straight line through PWM vs speed, forward and reverse</td><td class="value"></td></tr>
+        <tr><td class="num">12</td><td><code>SPEED_FF_TABLE</code></td><td>Menu 4 on a charged pack: one {speed, PWM} point per reading, 11% to top speed</td><td class="value"></td></tr>
         <tr><td class="num">13</td><td><code>WHEELBASE_L_M</code></td><td>Tape, axle centre to axle centre. Pure pursuit only.</td><td class="value"></td></tr>
         <tr><td class="num">14</td><td><code>T_BIAS_S</code></td><td>After several full runs: serial prints "T_BIAS_S would be …"; average it</td><td class="value"></td></tr>
       </tbody>

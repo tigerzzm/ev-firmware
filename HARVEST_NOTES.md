@@ -76,7 +76,7 @@ the bench bring-up below.
 | `motor_controller.*` | `components/Motor.*` | **verbatim** (renamed) — PID+feedforward velocity controller for the drive speed loop |
 | `imu.*` | `imu.*` | **adapted** — see below |
 | `odo.*` | `odom.cpp` (read pattern) | **new/derived** — single free-roller distance via PIO |
-| `pose.*` | `odom.cpp` (structure) | **new/derived** — bicycle-model dead reckoning, mutex-guarded, IMU-zeroed-at-arm |
+| `pose.*` | `odom.cpp` (structure) | **new/derived** — dead reckoning from encoder + IMU heading only (rear axle tracked along θ, roller placed ahead; `pose_track.h`), mutex-guarded, IMU-zeroed-at-arm. Never uses the servo command (2026-10-23). |
 | `config.h` | — | **new** — EV pin map + calibration constants |
 | `drive.*` | `l298n.*` (PWM pattern) | **new** — BTS7960 single-motor driver |
 | `path.*` | — | **new** — constant-curvature arc geometry (from `EV_Detailed_Design §0`) |

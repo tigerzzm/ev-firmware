@@ -59,7 +59,10 @@ reverse → stop on net encoder count → hold. See `docs/OPERATING_GUIDE.md`.
     `plan.*` (D,B,T,level → stops, speeds, start delay — pure), `steer_law.*`
     (forward/reverse steering laws — pure), `steer.*` (servo I/O), `speed.*`
     (profiles + PI speed loop — pure), `drive.*` (BTS7960 incl. dynamic-brake hold),
-    `ui.*` + `lcd.*` (LCD + dial), `cal.*` (bench menu), plus harvested
+    `ui.*` + `lcd.*` (LCD + dial), `cal.*` (bench menu), header-only pure helpers
+    `odo_split.h` (fwd/rev count split), `pose_track.h` (dead reckoning from encoder
+    + IMU heading only), `odo_sim.h` (simulated roller for menu 8 "Sim dry run",
+    wheels up), plus harvested
     `utils/position/ram_*` and `quadrature_encoder.pio`.
   - `BNO08x/` — vendored Adafruit BNO08x + sh2 library (do not edit).
 - `docs/` — hardware build docs: `START_HERE.md`, `BOM.md`, `WIRING_GUIDE.md` +
@@ -95,7 +98,7 @@ so an uncalibrated car never moves on a run. `M_PER_COUNT_REV` also ships at 0, 
 0 means "same as forward", and `WHEELBASE_L_M` is required only for pure pursuit. Procedure:
 `docs/OPERATING_GUIDE.md` Part 1. Both encoder scales matter; the forward one most
 (it multiplies the long forward leg).
-- Then: `SERVO_CENTER_US`, the speed feedforward line (`SPEED_FF_*`), `KICK_PWM`,
+- Then: `SERVO_CENTER_US`, the speed feedforward table (`SPEED_FF_TABLE`), `KICK_PWM`,
   steering/speed gains, `T_BIAS_S`.
 - `DELTA_MAX_RAD` = 0.12 rad (±7°, the linkage limit) — verify on the car.
 - Confirm four **signs** (`config.h` §3): `HEADING_SIGN`, `ENCODER_SIGN`,

@@ -20,7 +20,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>EV 2026 — Wiring Diagram (Raspberry Pi Pico 2)</h1>
+  <h1>EV — Wiring Diagram (Raspberry Pi Pico)</h1>
   <p class="sub">Signal connections are drawn; power &amp; ground follow the power tree in <code>WIRING_GUIDE.md §1</code>. Coloured pills show each block's supply. Physical Pico pin numbers in parentheses.</p>
   <svg viewBox="0 0 1240 1010" role="img" aria-label="EV wiring diagram">
     <defs>
@@ -78,8 +78,8 @@
     <!-- ===== Pico center block ===== -->
     <g>
       <rect x="500" y="300" width="240" height="440" class="box" fill="#f8fafc"/>
-      <text x="620" y="326" text-anchor="middle" class="lbl">Raspberry Pi Pico 2</text>
-      <text x="620" y="342" text-anchor="middle" class="sub">RP2350 · 3.3 V logic (NOT 5 V-tolerant)</text>
+      <text x="620" y="326" text-anchor="middle" class="lbl">Raspberry Pi Pico</text>
+      <text x="620" y="342" text-anchor="middle" class="sub">RP2040 · 3.3 V logic (NOT 5 V-tolerant)</text>
 
       <!-- left pins -->
       <g class="pin" text-anchor="start">
@@ -189,7 +189,7 @@
     <text x="1044" y="540" class="conlbl">M+/M−</text>
   </svg>
 
-  <p class="note warn"><strong>Before power:</strong> run the pre-power checklist in <code>WIRING_GUIDE.md §9</code>. The Pico 2 is <strong>not 5 V-tolerant</strong> — a 5 V encoder or a 5 V-powered LCD must go through a level shifter, never straight to a GPIO.</p>
+  <p class="note warn"><strong>Before power:</strong> run the pre-power checklist in <code>WIRING_GUIDE.md §9</code>. The Pico is <strong>not 5 V-tolerant</strong> — a 5 V encoder or a 5 V-powered LCD must go through a level shifter, never straight to a GPIO.</p>
   <p class="note">Full pin-by-pin tables, the power tree, decoupling, and the level-shifter details are in <code>WIRING_GUIDE.md</code>. This picture is the map; that doc is the territory.</p>
 </div>
 </body>
