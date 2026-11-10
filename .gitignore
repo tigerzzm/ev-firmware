@@ -16,3 +16,9 @@ cmake-build-*/
 .idea/
 *.swp
 *~
+
+# Run logs saved by tools/capture_run.py
+run_logs/
+
+# Python bytecode (tools/)
+__pycache__/
