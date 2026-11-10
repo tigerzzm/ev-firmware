@@ -1,24 +1,41 @@
 #include "drive.h"
 #include "config.h"
 #include "odo.h"
+#include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "pico/stdlib.h"
 #include "hardware/pwm.h"
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <initializer_list>
 
-// PWM setup pattern mirrors robotour's l298n.cpp (16-bit wrap, clkdiv 4).
+// PWM setup pattern mirrors robotour's l298n.cpp; the frequency is DRIVE_PWM_HZ.
 static uint s_rpwmSlice, s_rpwmChan;
 static uint s_lpwmSlice, s_lpwmChan;
+
+// The last command, for the dry run's simulated roller (driveCommand). Written on
+// core0, read under odo's lock from either core; the two are read separately, and
+// a tick-old mismatch between them is harmless to the simulation.
+static std::atomic<int>   s_cmdMode{(int)DriveMode::Coast};
+static std::atomic<float> s_cmdPct{0.0f};
+static void record(DriveMode m, float pct) {
+  s_cmdPct.store(pct);
+  s_cmdMode.store((int)m);
+}
+
+// Counter period for DRIVE_PWM_HZ, set in driveInit: the finest resolution that
+// fits the 16-bit counter (20 kHz on a 125 MHz clock: divider 1, 6250 steps).
+static float    s_div  = 1.0f;
+static uint16_t s_wrap = 65535;
 
 static void setupPwmPin(uint pin, uint *slice, uint *chan) {
   gpio_set_function(pin, GPIO_FUNC_PWM);
   *slice = pwm_gpio_to_slice_num(pin);
   *chan  = pwm_gpio_to_channel(pin);
   pwm_config cfg = pwm_get_default_config();
-  pwm_config_set_clkdiv(&cfg, 4.f);
-  pwm_config_set_wrap(&cfg, 65535);
+  pwm_config_set_clkdiv(&cfg, s_div);
+  pwm_config_set_wrap(&cfg, s_wrap);
   pwm_init(*slice, &cfg, true);
   pwm_set_chan_level(*slice, *chan, 0);
 }
@@ -33,7 +50,7 @@ static inline void enableBridges(bool on) {
 
 static inline uint16_t pctToLevel(float pct) {
   pct = std::clamp(pct, 0.0f, 100.0f);
-  return (uint16_t)((pct * 65535.0f) / 100.0f);
+  return (uint16_t)((pct * s_wrap) / 100.0f);
 }
 
 void driveInit() {
@@ -42,29 +59,37 @@ void driveInit() {
     gpio_set_dir(p, GPIO_OUT);
     gpio_put(p, 0);                       // start disabled
   }
+  const float ticks = (float)clock_get_hz(clk_sys) / DRIVE_PWM_HZ;   // at divider 1
+  s_div  = std::max(1.0f, ticks / 65536.0f);
+  s_wrap = (uint16_t)(ticks / s_div - 1.0f);
   setupPwmPin(BTS7960_RPWM_PIN, &s_rpwmSlice, &s_rpwmChan);
   setupPwmPin(BTS7960_LPWM_PIN, &s_lpwmSlice, &s_lpwmChan);
 }
 
 void driveForward(float pwmPercent) {
+  // PWM 0 with the bridges on is the dynamic brake, not drive.
+  record(pwmPercent > 0.0f ? DriveMode::Drive : DriveMode::Hold, std::max(pwmPercent, 0.0f));
   enableBridges(true);
   pwm_set_chan_level(s_lpwmSlice, s_lpwmChan, 0);
   pwm_set_chan_level(s_rpwmSlice, s_rpwmChan, pctToLevel(pwmPercent));
 }
 
 void driveReverse(float pwmPercent) {
+  record(pwmPercent > 0.0f ? DriveMode::Drive : DriveMode::Hold, -std::max(pwmPercent, 0.0f));
   enableBridges(true);
   pwm_set_chan_level(s_rpwmSlice, s_rpwmChan, 0);
   pwm_set_chan_level(s_lpwmSlice, s_lpwmChan, pctToLevel(pwmPercent));
 }
 
 void driveCoast() {
+  record(DriveMode::Coast, 0.0f);
   pwm_set_chan_level(s_rpwmSlice, s_rpwmChan, 0);
   pwm_set_chan_level(s_lpwmSlice, s_lpwmChan, 0);
   enableBridges(false);
 }
 
 void driveHold() {
+  record(DriveMode::Hold, 0.0f);
   pwm_set_chan_level(s_rpwmSlice, s_rpwmChan, 0);
   pwm_set_chan_level(s_lpwmSlice, s_lpwmChan, 0);
   enableBridges(true);
@@ -98,4 +123,9 @@ void driveBrakeToStop(float pwmPercent, uint32_t maxMs) {
     last = c;
   }
   driveHold();
+}
+
+void driveCommand(DriveMode &mode, float &pct) {
+  mode = (DriveMode)s_cmdMode.load();
+  pct  = s_cmdPct.load();
 }

@@ -3,14 +3,15 @@
 // cal — bench calibration routines.
 //
 // Two ways in: hold SET at power-on (main.cpp), or hold SET for
-// CAL_ENTRY_HOLD_MS at the "EV ready" screen (sm.cpp). "8 Exit to run" returns
+// CAL_ENTRY_HOLD_MS at the "EV ready" screen (sm.cpp). "9 Exit to run" returns
 // to the run sequence.
 //
 // Only the IMU-heading and steer-response tests need the IMU. A failed imuInit()
 // does not lock you out: everything else works with the heading sensor unwired.
 //==============================================================================
 
-// Top-level bench menu. Returns when "8 Exit to run" is chosen.
+// Top-level bench menu. Returns when "9 Exit to run" is chosen. "8 Sim dry run"
+// is smDryRun() in sm.cpp: a whole run, wheels up, on a simulated encoder.
 void calMenu();
 
 // Motor + driver check. Short bursts at a dialled PWM, forward or reverse, with
@@ -47,7 +48,7 @@ void calInputTest();
 void calEncoderReadout();
 
 // PWM -> ground-speed probe, forward or reverse. One data point per run: dial a
-// duty %, press START, the car drives ~3.5 m and reports the average speed over
-// the middle CAL_MEASURE_M. Fit a line through the points for the feedforward
-// constants SPEED_FF_OFFSET_PCT / SPEED_FF_PCT_PER_MPS (config.h §2).
+// duty %, press START, the car drives ~3 m, reports the average speed over the
+// middle CAL_MEASURE_M, then eases down like a push end. The points go in the
+// feedforward table SPEED_FF_TABLE (config.h §2).
 void calPwmProbe();

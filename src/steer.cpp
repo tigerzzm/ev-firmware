@@ -4,7 +4,6 @@
 #include "hardware/gpio.h"
 #include "hardware/pwm.h"
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 
 // ---- Servo I/O ----------------------------------------------------------------
@@ -17,11 +16,6 @@
 // servo command by ~20% on the other chip. This way the same source is correct on
 // both.
 static uint s_slice, s_chan;
-
-// Written on core0 (the state machine), read on core1 (poseUpdate), so it is
-// atomic. (The M0+ has no atomic instructions; the SDK's pico_atomic supplies
-// them, as it does for the other cross-core atomics in odo/pose/imu.)
-static std::atomic<float> s_deltaRad{0.0f};
 
 void steerInit() {
   gpio_set_function(SERVO_SIG_PIN, GPIO_FUNC_PWM);
@@ -45,15 +39,6 @@ void steerWriteUs(int us) {
   }
   us = std::clamp(us, SERVO_MIN_US, SERVO_MAX_US);
   pwm_set_chan_level(s_slice, s_chan, (uint16_t)us);   // 1 tick == 1 us
-  // Record the angle this pulse ACTUALLY gives, after both clamps — that is what
-  // the estimator integrates along. Recording the requested angle overstated it
-  // whenever SERVO_TRAVEL_US is tighter than DELTA_MAX_RAD (0.12 rad needs
-  // ~428 us at ~3565 us/rad, but travel stops at 400 us).
-  // Until SERVO_US_PER_RAD is measured (it ships at 0) the angle is unknown; the
-  // car won't arm then, and the raw servo jog must not divide by zero.
-  s_deltaRad.store(SERVO_US_PER_RAD > 0.0f
-                       ? (float)(us - SERVO_CENTER_US) / (STEER_DIR_SIGN * SERVO_US_PER_RAD)
-                       : 0.0f);
 }
 
 void steerSetAngle(float deltaRad) {
@@ -70,5 +55,3 @@ void steerCenter() { steerSetAngle(0.0f); }
 // motor (no holding current) and the gear train holds the horn by friction. The
 // next steerWriteUs()/steerSetAngle() resumes normal pulses.
 void steerRelease() { pwm_set_chan_level(s_slice, s_chan, 0); }
-
-float steerAngleRad() { return s_deltaRad.load(); }

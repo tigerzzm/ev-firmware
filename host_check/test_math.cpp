@@ -7,8 +7,10 @@
 // 2026 cross-track bug) makes them diverge, so they fail instead of passing
 // quietly the way an open-loop formula check would.
 #include "config.h"
+#include "odo_sim.h"
 #include "odo_split.h"
 #include "plan.h"
+#include "pose_track.h"
 #include "speed.h"
 #include "steer_law.h"
 #include "utils.h"
@@ -36,18 +38,38 @@ static const float kWheelbase = 0.25f;  // bicycle-model wheelbase for the sims
 //------------------------------------------------------------------------------
 static void testPlanGeometry() {
   printf("\n-- plan geometry --\n");
-  const RunPlan p = planRun(RunInputs{7.0f, 2.0f, 15.0f, 2.0f, 0.0f, 0.0f}, kCar);
+  // T 18: fits inside T at this geometry even with the START_SETTLE_S settle.
+  const RunPlan p = planRun(RunInputs{7.0f, 2.0f, 18.0f, 2.0f, 0.0f, 0.0f}, kCar);
   chkTrue("valid", p.valid);
   chk("xContact = xb - r - L_P", p.xContact, 2.0 - R_BOTTLE_M - 0.55, 1e-5);
   chk("xF = D + B + A_PAST - S - L_P", p.xF, 7.0 + 2.0 + A_PAST_M - S_SLIDE_M - 0.55, 1e-5);
   chk("xFinal = D", p.xFinal, 7.0, 1e-6);
   chk("rev = xF - xFinal", p.rev, p.xF - p.xFinal, 1e-6);
-  chk("delay + motion = T", p.delayS + p.tMotion, 15.0, 1e-3);
+  chk("delay + motion = T", p.delayS + p.tMotion, 18.0, 1e-3);
+  chkTrue("delay >= settle", p.delayS >= START_SETTLE_S);
+  // Spare time is driven slower, not waited out: D5 B1 T19 has ~5 s to spare, and
+  // the minimum speeds can still use it all (at T20 they finish ~0.1 s early).
+  const RunPlan slow = planRun(RunInputs{5.0f, 1.0f, 19.0f, 2.0f, 0.0f, 0.0f}, kCar);
+  chk("spare time: delay = settle", slow.delayS, START_SETTLE_S, 1e-3);
+  chk("spare time: delay + motion = T", slow.delayS + slow.tMotion, 19.0, 1e-3);
+  chkTrue("spare time: slower than nominal", slow.v.vCruise < V_CRUISE_NOM && slow.v.vPush < V_PUSH);
+  chk("catch = min(V_CAPTURE, cruise, push)", p.v.vCatch,
+      std::min({V_CAPTURE, p.v.vCruise, p.v.vPush}), 1e-6);
+  chkTrue("slow run catches no faster than it cruises", slow.v.vCatch <= slow.v.vCruise + 1e-6f);
+  chkTrue("spare time: not below the minimums",
+          slow.v.vCruise >= V_CRUISE_MIN - 1e-4f && slow.v.vPush >= V_PUSH_MIN - 1e-4f && slow.v.vRev >= V_REV_MIN - 1e-4f);
 
   // Offsets move only their own stop.
-  const RunPlan q = planRun(RunInputs{7.0f, 2.0f, 15.0f, 2.0f, -0.03f, +0.02f}, kCar);
+  const RunPlan q = planRun(RunInputs{7.0f, 2.0f, 18.0f, 2.0f, -0.03f, +0.02f}, kCar);
   chk("mpOfs moves xFinal only", q.xFinal - p.xFinal, -0.03, 1e-5);
   chk("btlOfs moves xF only", q.xF - p.xF, +0.02, 1e-5);
+  RunInputs mIn{7.0f, 2.0f, 15.0f, 2.0f, 0.0f, 0.0f};
+  mIn.margin = 0.02f;
+  const RunPlan m = planRun(mIn, kCar);
+  chk("BtlPast moves xF only", m.xF - p.xF, 0.02f - A_PAST_M, 1e-5);
+  chk("BtlPast leaves xFinal", m.xFinal - p.xFinal, 0.0, 1e-6);
+  mIn.margin = A_PAST_MAX_M + 0.01f;
+  chkTrue("refuses BtlPast > max", !planRun(mIn, kCar).valid);
 
   // Refusals.
   chkTrue("refuses L_P = 0", !planRun(RunInputs{7, 2, 15, 2, 0, 0}, VehicleGeom{0.0f}).valid);
@@ -97,7 +119,7 @@ static void testPlanRulesGrid() {
   const RunPlan w = planRun(RunInputs{9, 3, 10, BOTTLE_X_REGIONAL_M, 0, 0}, kCar);
   printf("worst case D9 B3 T10: path %.2f m, motion %.2f s, fits=%d\n", w.path, w.tMotion, w.timeFits);
   chkTrue("worst case valid", w.valid);
-  chk("worst case delay = 0", w.delayS, 0.0, 1e-6);
+  chk("worst case delay = settle", w.delayS, START_SETTLE_S, 1e-6);
 }
 
 static void testSegmentTime() {
@@ -161,6 +183,30 @@ static void testSpeedLoop() {
   SpeedLoop loop; loop.reset();
   chk("zero target -> zero pwm", loop.update(0.0f, 0.3f, 0.002f), 0.0, 0.0);
   chk("overspeed never reverses", loop.update(0.1f, 2.0f, 0.002f), 0.0, 0.0);
+
+  // Feedforward table: hits every point, interpolates between, extends the end
+  // segments, and the inverse undoes it.
+  {
+    bool pts = true, inv = true, mono = true;
+    for (int i = 0; i < SPEED_FF_N; i++) {
+      const FfPoint &p = SPEED_FF_TABLE[i];
+      if (p.v > 0.0f && std::fabs(pwmFeedforward(p.v) - p.pct) > 1e-4f) pts = false;
+      if (i > 0 && std::fabs(ffSpeedForPwm(p.pct) - p.v) > 1e-4f) inv = false;
+    }
+    float last = 0.0f;
+    for (float v = 0.01f; v < 2.5f; v += 0.01f) {
+      const float pct = pwmFeedforward(v);
+      if (pct <= last) mono = false;
+      last = pct;
+      if (std::fabs(ffSpeedForPwm(pct) - v) > 1e-3f) inv = false;
+    }
+    chkTrue("ff table: every point exact", pts);
+    chkTrue("ff table: increasing over 0-2.5 m/s", mono);
+    chkTrue("ff table: inverse undoes it", inv);
+    const FfPoint &a = SPEED_FF_TABLE[2], &b = SPEED_FF_TABLE[3];
+    chk("ff table: midpoint interpolates", pwmFeedforward(0.5f * (a.v + b.v)), 0.5f * (a.pct + b.pct), 1e-4);
+    chk("ff: no motion at the dead-zone edge", ffSpeedForPwm(SPEED_FF_TABLE[0].pct), 0.0, 0.0);
+  }
 
   // Frozen integrator (car stuck on stiction): the I term must hold still, so the
   // breakaway doesn't come with a wound-up surge. Output with a frozen integrator
@@ -364,6 +410,165 @@ static void testReverseDispatch() {
 }
 
 //------------------------------------------------------------------------------
+// the whole lateral loop with a MIS-CALIBRATED servo: the estimator (pose_track.h)
+// sees only encoder distance and IMU heading, the real wheels point at
+// scale * command + bias, and the selected laws steer from the estimate. If the
+// estimator trusted the servo command, a 50 us centre error would walk the car
+// ~13 cm off the line over 9 m; this checks it stays within ~1-2 cm.
+//------------------------------------------------------------------------------
+// Aim trim: the car is placed pointing `a` RIGHT of the real centreline. With the
+// trim set to `a`, the pose starts at heading -a and the forward law steers onto
+// the real line; without it the car holds the wrong heading and ends ~D*a right.
+static double aimRun(double aimTrue, double trim) {
+  const double Lm = WHEELBASE_L_M > 0 ? WHEELBASE_L_M : 0.40, WL = WHEELBASE_L_M;
+  // True state of the rear axle, real-centreline frame; rear MP on the Start dot.
+  const double dRear = ENC_FROM_MP_M - Lm;
+  double th = -aimTrue, xr = dRear * std::cos(th), yr = dRear * std::sin(th);
+  HeadingTrack est;
+  const double th0 = -trim;
+  est.reset(ENC_FROM_MP_M * std::cos(th0), ENC_FROM_MP_M * std::sin(th0), WL, th0);
+  const double v = 0.4, dt = 0.002;
+  while (xr - dRear < 5.0) {
+    const double thEst = th + aimTrue - trim;            // IMU zeroed at the start, minus trim
+    const float cmd = steerLawForward((float)est.rollerY(thEst, WL), (float)thEst, (float)v);
+    const double ds = v * dt;
+    th += ds * std::sin(cmd) / Lm;
+    xr += ds * std::cos(cmd) * std::cos(th);
+    yr += ds * std::cos(cmd) * std::sin(th);
+    est.step(ds * std::cos(cmd), th + aimTrue - trim);
+  }
+  return yr - dRear * std::sin(th);                      // rear MP sideways, real frame
+}
+
+static void testAimTrim() {
+  printf("\n-- aim trim --\n");
+  const double a = 0.55 * M_PI / 180.0;
+  const double off = aimRun(a, 0.0), on = aimRun(a, a);
+  printf("0.55 deg aim error over 5 m: rear MP %.1f cm without the trim, %.1f cm with it\n",
+         100 * off, 100 * on);
+  chkTrue("without the trim it ends right (> 3 cm)", off < -0.03);
+  chkTrue("with the trim it ends within 1 cm", std::fabs(on) < 0.01);
+  HeadingTrack t;
+  t.reset(0.5 * std::cos(-a), 0.5 * std::sin(-a), 0.4, -a);
+  chk("reset with heading: roller x round-trips", t.rollerX(-a, 0.4), 0.5 * std::cos(-a), 1e-9);
+  chk("reset with heading: roller y round-trips", t.rollerY(-a, 0.4), 0.5 * std::sin(-a), 1e-9);
+}
+
+static void testMiscalibratedServo() {
+  printf("\n-- whole loop, mis-calibrated servo (estimator never sees the command) --\n");
+  // The car's real wheelbase. The estimator uses WHEELBASE_L_M, which may still be
+  // 0 (unmeasured): that must cost only a few mm.
+  const double Lm = WHEELBASE_L_M > 0.0f ? WHEELBASE_L_M : 0.44;
+  const double WL = WHEELBASE_L_M;
+  const double bias = 50.0 / 3565.0;           // centre pulse 50 us off, rad of beam
+  for (double scale : {0.77, 1.0, 1.3}) {      // SERVO_US_PER_RAD 30% high / right / 23% low
+    // Forward 9 m. True state at the rear axle; the roller starts at ENC_FROM_MP_M.
+    double xr = ENC_FROM_MP_M - Lm, yr = 0, th = 0;
+    HeadingTrack est;
+    est.reset(ENC_FROM_MP_M, WL);
+    const double v = 0.6, dt = 0.002;
+    double worstEst = 0, yAt4 = 0;
+    while (xr + Lm < ENC_FROM_MP_M + 9.0) {
+      const float cmd = steerLawForward((float)est.rollerY(th, WL), (float)th, (float)v);
+      const double d = scale * cmd + bias;     // what the wheels really do
+      const double ds = v * dt;                // roller (front axle) step
+      th += ds * std::sin(d) / Lm;
+      xr += ds * std::cos(d) * std::cos(th);
+      yr += ds * std::cos(d) * std::sin(th);
+      est.step(ds, th);
+      const double yTrue = yr + Lm * std::sin(th);
+      worstEst = std::max(worstEst, std::fabs(est.rollerY(th, WL) - yTrue));
+      if (yAt4 == 0 && xr + Lm >= ENC_FROM_MP_M + 4.0) yAt4 = yTrue;
+    }
+    char name[64];
+    snprintf(name, sizeof name, "scale %.2f: |y| at bottle (4 m)", scale);
+    chk(name, std::fabs(yAt4), 0.0, 0.02);
+    snprintf(name, sizeof name, "scale %.2f: |y| at 9 m", scale);
+    chk(name, std::fabs(yr + Lm * std::sin(th)), 0.0, 0.02);
+    snprintf(name, sizeof name, "scale %.2f: estimate error (worst)", scale);
+    chk(name, worstEst, 0.0, 0.01);
+
+    // Reverse 2 m onto the Target, carrying on from the forward leg's end state.
+    // Skipped while ENC_FROM_MP_M is 0: the rear MP would then sit on the front
+    // axle, which no reverse law can hold (run.sh re-runs with a measured car).
+    if (ENC_FROM_MP_M <= Lm) continue;
+    const double mpBehind = ENC_FROM_MP_M - Lm;            // rear MP behind the rear axle
+    const double target = est.rollerX(th, WL) - ENC_FROM_MP_M - 2.0;
+    float last = 0;
+    while (est.rollerX(th, WL) - ENC_FROM_MP_M * std::cos(th) > target) {
+      const float cmd = steerLawReverse((float)est.rollerX(th, WL), (float)est.rollerY(th, WL),
+                                        (float)th, (float)V_REV, (float)target, last);
+      last = cmd;
+      const double d = scale * cmd + bias;
+      const double ds = -V_REV * dt;
+      th += ds * std::sin(d) / Lm;
+      xr += ds * std::cos(d) * std::cos(th);
+      yr += ds * std::cos(d) * std::sin(th);
+      est.step(ds, th);
+    }
+    snprintf(name, sizeof name, "scale %.2f: |y| rear MP at Target", scale);
+    chk(name, std::fabs(yr - mpBehind * std::sin(th)), 0.0, 0.02);
+  }
+}
+
+//------------------------------------------------------------------------------
+// bench dry run: the simulated roller (odo_sim.h)
+//------------------------------------------------------------------------------
+static void testSimWheel() {
+  printf("\n-- dry-run simulated roller --\n");
+  const float mF = 1.0e-4f, mR = 1.1e-4f, dt = 0.002f;
+  auto run = [&](SimWheel &w, float secs, DriveMode m, float pct) {
+    for (float t = 0; t < secs; t += dt) w.step(dt, m, pct, mF, mR);
+  };
+  // Steady drive settles on the feedforward line, scaled by SIM_SPEED_SCALE.
+  const float vWant = 0.5f;
+  const float pct = pwmFeedforward(vWant);
+  SimWheel a;
+  run(a, 2.0f, DriveMode::Drive, pct);
+  chk("drive: settles on the ff line x scale", a.v, SIM_SPEED_SCALE * vWant, 1e-3);
+  chkTrue("drive: counts roll forward", a.counts > 0);
+  // Below the dead-zone edge nothing moves.
+  SimWheel b;
+  run(b, 1.0f, DriveMode::Drive, 0.5f * SPEED_FF_TABLE[0].pct);
+  chk("below ff offset: stays put", b.counts, 0.0, 0.0);
+  // Brake stops sooner than coast, and both come to rest (no sign flip).
+  SimWheel h = a, c = a;
+  float tH = 0, tC = 0;
+  while (h.v > 0 && tH < 5) { h.step(dt, DriveMode::Hold, 0, mF, mR); tH += dt; }
+  while (c.v > 0 && tC < 5) { c.step(dt, DriveMode::Coast, 0, mF, mR); tC += dt; }
+  chkTrue("hold stops faster than coast", tH < tC);
+  chk("hold stops at v = 0", h.v, 0.0, 0.0);
+  chk("hold time ~ v / SIM_BRAKE_DECEL", tH, a.v / SIM_BRAKE_DECEL_MPS2, 2 * dt);
+  // Reverse runs backward on the reverse scale.
+  SimWheel r;
+  run(r, 2.0f, DriveMode::Drive, -pct);
+  chk("reverse: negative speed", r.v, -SIM_SPEED_SCALE * vWant, 1e-3);
+  {
+    SimWheel q = r;
+    const double before = q.counts;
+    q.step(dt, DriveMode::Drive, -pct, mF, mR);
+    chk("reverse: counts use M_PER_COUNT_REV", q.counts - before, q.v * dt / mR, 1e-6);
+  }
+  // A long gap is capped, not integrated in one jump.
+  SimWheel g = a;
+  const double g0 = g.counts;
+  g.step(10.0f, DriveMode::Drive, pct, mF, mR);
+  chkTrue("gap capped at SIM_MAX_STEP_S", g.counts - g0 <= g.v * SIM_MAX_STEP_S / mF + 1);
+  // The real speed loop closes on it: the dry run must be drivable, not just
+  // a model that happens to sit on the feedforward line.
+  {
+    SimWheel w;
+    SpeedLoop loop;
+    loop.reset();
+    for (float t = 0; t < 4.0f; t += dt) {
+      const float pwm = std::max(loop.update(0.4f, w.v, dt), 0.0f);
+      w.step(dt, pwm > 0 ? DriveMode::Drive : DriveMode::Coast, pwm, mF, mR);
+    }
+    chk("speed loop holds 0.4 m/s on the sim", w.v, 0.4, 0.01);
+  }
+}
+
+//------------------------------------------------------------------------------
 // encoder direction split (odo_split.h)
 //------------------------------------------------------------------------------
 static void testDirSplit() {
@@ -451,6 +656,9 @@ int main() {
   testSteerPurePursuitReverse();
   testSteerStanleyReverse();
   testReverseDispatch();
+  testMiscalibratedServo();
+  testAimTrim();
+  testSimWheel();
   testDirSplit();
   testUtils();
   printf("\n%s (%d failures)\n", fails ? "TESTS FAILED" : "ALL MATH TESTS PASS", fails);

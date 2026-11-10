@@ -11,10 +11,10 @@ static float rampSpeed(float vEnd, float a, float dist) {
 
 float speedProfileForward(float x, const RunPlan &p) {
   if (x < p.captureStart) {
-    // Cruise, but arrive at the capture zone already down at V_CAPTURE.
-    return std::min(p.v.vCruise, rampSpeed(V_CAPTURE, A_DECEL, p.captureStart - x));
+    // Cruise, but arrive at the capture zone already down at the catch speed.
+    return std::min(p.v.vCruise, rampSpeed(p.v.vCatch, A_DECEL, p.captureStart - x));
   }
-  if (x < p.pushStart) return V_CAPTURE;          // first contact: seat, don't kick
+  if (x < p.pushStart) return p.v.vCatch;         // first contact: seat, don't kick
   // Push, ramping down at A_RELEASE (< mu*g) so the bottle stays seated.
   return std::min(p.v.vPush, rampSpeed(V_PUSH_END, A_RELEASE, p.xF - x));
 }
@@ -28,9 +28,26 @@ float speedRateLimit(float target, float current, float aUp, float dt) {
   return std::min(target, current + aUp * dt);
 }
 
+// Segment i of SPEED_FF_TABLE that covers `x` (by speed or by PWM): the first or
+// last segment beyond the ends, so those extrapolate along it.
+template <typename Key> static int ffSegment(float x, Key key) {
+  int i = 0;
+  while (i < SPEED_FF_N - 2 && x > key(SPEED_FF_TABLE[i + 1])) i++;
+  return i;
+}
+
 float pwmFeedforward(float v) {
   if (v <= 0.0f) return 0.0f;
-  return SPEED_FF_OFFSET_PCT + SPEED_FF_PCT_PER_MPS * v;
+  const int i = ffSegment(v, [](const FfPoint &p) { return p.v; });
+  const FfPoint &a = SPEED_FF_TABLE[i], &b = SPEED_FF_TABLE[i + 1];
+  return a.pct + (b.pct - a.pct) * (v - a.v) / (b.v - a.v);
+}
+
+float ffSpeedForPwm(float pct) {
+  if (pct <= SPEED_FF_TABLE[0].pct) return 0.0f;
+  const int i = ffSegment(pct, [](const FfPoint &p) { return p.pct; });
+  const FfPoint &a = SPEED_FF_TABLE[i], &b = SPEED_FF_TABLE[i + 1];
+  return a.v + (b.v - a.v) * (pct - a.pct) / (b.pct - a.pct);
 }
 
 void SpeedLoop::reset() { i_ = 0.0f; }

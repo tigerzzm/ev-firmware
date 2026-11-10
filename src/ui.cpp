@@ -205,6 +205,23 @@ float uiEnterOffsetM(const char *label, float current) {
                     STOP_OFFSET_MIN_M, STOP_OFFSET_MAX_M, incs, 3, 3);
 }
 
+float uiEnterBottleMarginM(float current) {
+  // Entered in cm (the bottle is scored per cm): 0.5 cm steps get there fast,
+  // 0.1 cm for the last bit. Metres everywhere else.
+  static const float incs[] = {0.5f, 0.1f, 1.0f};
+  const float cm = enterValue("BtlPast:", "cm",
+                              100.0f * std::clamp(current, A_PAST_MIN_M, A_PAST_MAX_M),
+                              100.0f * A_PAST_MIN_M, 100.0f * A_PAST_MAX_M, incs, 3, 1);
+  return std::clamp(cm / 100.0f, A_PAST_MIN_M, A_PAST_MAX_M);
+}
+
+float uiEnterAimDeg(float current) {
+  // 0.05 deg ~ 0.4 cm at 5 m; 0.01 for the last bit; 0.25 to get there fast.
+  static const float incs[] = {0.05f, 0.01f, 0.25f};
+  return enterValue("Aim:", "deg", std::clamp(current, AIM_TRIM_MIN_DEG, AIM_TRIM_MAX_DEG),
+                    AIM_TRIM_MIN_DEG, AIM_TRIM_MAX_DEG, incs, 3, 2);
+}
+
 // The CLK history for uiRotaryStep(). Re-seeded from the ACTUAL pin whenever a
 // screen starts using the dial (uiRotaryResync): the value entry screens keep their
 // own history, so after the dial turns there this one is stale, and a stale "high"

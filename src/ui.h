@@ -26,6 +26,11 @@ int   uiSelectLevel(int current);          // 0 regional 2.0 m, 1 state, 2 natio
 // Run-2 correction, metres, [STOP_OFFSET_MIN_M, STOP_OFFSET_MAX_M]. `label` is the
 // LCD prefix ("MPofs:" or "BtlOfs:"); see config.h §5 for the sign conventions.
 float uiEnterOffsetM(const char *label, float current);
+// Bottle margin "BtlPast:", entered in CM on the LCD, returned in metres,
+// [A_PAST_MIN_M, A_PAST_MAX_M] (config.h §5).
+float uiEnterBottleMarginM(float current);
+// Aim trim "Aim:", degrees, + = left, [AIM_TRIM_MIN_DEG, AIM_TRIM_MAX_DEG] (config.h §5).
+float uiEnterAimDeg(float current);
 
 // Two full 16-character lines WITHOUT lcdClear() and WITHOUT printf — for live
 // screens. Shorter strings are space-padded so nothing stale is left behind. An

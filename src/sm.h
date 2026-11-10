@@ -19,8 +19,14 @@
 // states of the motion loop that follows them.
 //==============================================================================
 
-enum class EvState { CRUISE, CAPTURE, PUSH, TURNAROUND, REVERSE, STOP };
+// DELAY: the stationary start delay, recorded in the telemetry only (heading watch).
+enum class EvState { CRUISE, CAPTURE, PUSH, TURNAROUND, REVERSE, STOP, DELAY };
 
 // Never returns. imuOk = false runs every leg with the servo centred (encoder
 // only) after an on-screen warning, rather than refusing to run at all.
 void smRun(bool imuOk);
+
+// "8 Sim dry run" (bench menu): target entry, plan, then a full run with the
+// wheels UP on a simulated encoder (odo.h, odoSimSet), and the usual report
+// marked SIMULATED. Returns to the bench menu.
+void smDryRun();

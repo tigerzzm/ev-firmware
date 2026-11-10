@@ -39,5 +39,9 @@ class SpeedLoop {
   float i_ = 0.0f;
 };
 
-// Feedforward map: speed magnitude (m/s) -> PWM %. 0 for a zero target.
+// Feedforward map: speed magnitude (m/s) -> PWM %, interpolated in
+// SPEED_FF_TABLE (config.h §2). 0 for a zero target.
 float pwmFeedforward(float v);
+// The same table run backwards: steady speed (m/s, >= 0) a duty magnitude gives.
+// 0 at or below the table's first PWM (the dead-zone edge).
+float ffSpeedForPwm(float pct);

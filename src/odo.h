@@ -24,6 +24,15 @@ float odoDistanceM();            // net MP travel since odoZero(), metres (signe
 // fwd + rev: up to ODO_DIR_HYST_COUNTS - 1 counts can be pending, odo_split.h.)
 DirSplit odoSnapshot();
 
+// ---- Bench dry run ("8 Sim dry run", config.h §7) ---------------------------
+// While on, every reading above comes from a simulated roller driven by the motor
+// command (odo_sim.h) instead of the PIO, so a full run plays out with the wheels
+// up. The real encoder is still read: odoSimRealMotionM() is its net travel since
+// the dry run began, for catching a car that is really on the floor. Core0 only.
+void  odoSimSet(bool on);
+bool  odoSimActive();
+float odoSimRealMotionM();
+
 // ---- Ground-speed estimate ---------------------------------------------------
 // Differentiated from distance and low-passed; signed (+ forward).
 // SINGLE-CORE: call all three from core0 only (the control loop / bench tools).

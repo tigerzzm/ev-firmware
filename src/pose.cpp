@@ -2,7 +2,7 @@
 #include "config.h"
 #include "imu.h"
 #include "odo.h"
-#include "steer.h"
+#include "pose_track.h"
 #include "utils.h"
 #include "pico/mutex.h"
 #include "pico/stdlib.h"
@@ -11,9 +11,14 @@
 
 static mutex_t s_lock;
 static Position s_state{ENC_FROM_MP_M, 0, 0};
+// Rear-axle track the roller pose is derived from (pose_track.h). core1 only,
+// except in zeroPose(), which holds the mutex.
+static HeadingTrack s_track;
 // IMU yaw (rad) at the heading zero. Written by whichever core performs the zero,
 // read by core1 outside the mutex, so it is atomic.
 static std::atomic<float> s_headingOffsetRad{0.0f};
+// Aim trim (rad, + = left), subtracted from every heading: see poseSetAimTrim().
+static std::atomic<float> s_aimTrimRad{0.0f};
 // Last odo distance (m), for ds. Owned by core1 while the estimator is active;
 // core0 writes it only while inactive (the seq_cst store of s_active publishes it).
 static float    s_lastDist = 0.0f;
@@ -34,21 +39,39 @@ void poseInit() {
   mutex_init(&s_lock);
 }
 
-// Roller back to (ENC_FROM_MP_M, 0, 0) with `yawDeg` as the new heading zero.
-// Runs on whichever core owns the IMU right now. Never touches the I2C bus.
+// Roller to (ENC_FROM_MP_M + distance so far, 0, 0) with `yawDeg` as the new heading
+// zero (distance is 0 right after odoZero). Runs on whichever core owns the IMU
+// right now. Never touches the I2C bus.
 static void zeroPose(float yawDeg) {
   mutex_enter_blocking(&s_lock);
   s_lastDist = odoDistanceM();
   s_headingOffsetRad.store((float)utils::degToRad(yawDeg));
-  s_state = Position{ENC_FROM_MP_M, 0, 0};
+  // The rear MP is on the centreline; the body points -trim off it, so the roller
+  // (ENC_FROM_MP_M ahead of the MP) starts slightly to that side.
+  const double th0 = -(double)s_aimTrimRad.load();
+  const double xr = s_lastDist + ENC_FROM_MP_M * std::cos(th0);
+  const double yr = ENC_FROM_MP_M * std::sin(th0);
+  s_state = Position{xr, yr, th0};
+  s_track.reset(xr, yr, WHEELBASE_L_M, th0);
   mutex_exit(&s_lock);
 }
+
+void poseSetAimTrim(float rad) { s_aimTrimRad.store(rad); }
+
+static bool zeroHeadingNow();
 
 bool poseZeroAtArm() {
   // The encoder is core-safe, so zero it here and now: the run's distance must
   // never depend on the IMU answering.
   odoZero();
+  return zeroHeadingNow();
+}
 
+bool poseZeroHeading() {
+  return zeroHeadingNow();
+}
+
+static bool zeroHeadingNow() {
   if (!s_active.load()) {
     // Estimator idle: this core may use the IMU. Nobody has been polling it, and
     // the BNO085 queues reports, so drain it before trusting the heading.
@@ -117,16 +140,19 @@ static void updateActive() {
 
   const double rawRad = utils::degToRad(yawDeg);
   const double theta  = utils::angleError(
-      HEADING_SIGN * (rawRad - (double)s_headingOffsetRad.load()), 0.0, true);
+      HEADING_SIGN * (rawRad - (double)s_headingOffsetRad.load()) - (double)s_aimTrimRad.load(),
+      0.0, true);
 
   const float dist = odoDistanceM();
   const float ds   = dist - s_lastDist;
   s_lastDist = dist;
-  const double dir = theta + (double)steerAngleRad();   // roller rolls along this
 
+  // Encoder distance along the IMU heading only — never the servo command
+  // (pose_track.h says why).
   mutex_enter_blocking(&s_lock);
-  s_state.x    += ds * std::cos(dir);
-  s_state.y    += ds * std::sin(dir);
+  s_track.step(ds, theta);
+  s_state.x     = s_track.rollerX(theta, WHEELBASE_L_M);
+  s_state.y     = s_track.rollerY(theta, WHEELBASE_L_M);
   s_state.theta = theta;
   mutex_exit(&s_lock);
 }

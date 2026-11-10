@@ -6,11 +6,13 @@
 #include <algorithm>
 #include "imu.h"
 #include "pose.h"
+#include "sm.h"
 #include "odo.h"
 #include "utils.h"
 #include <cmath>
 #include "steer.h"
 #include "steer_law.h"
+#include "speed.h"
 #include "ui.h"
 #include "pico/stdlib.h"
 #include <cstdio>
@@ -19,14 +21,62 @@
 // odoSpeedMps(). Over a 2 m window, distance/time is exact — no filter lag and
 // no quantisation worth worrying about. Run it in BOTH directions: the reverse
 // leg runs on the same feedforward line (config.h §2), so check they agree.
+// Keep a result on the LCD until SET or START is pressed, so it can be written down.
+static void holdResult() {
+  while (uiSetPressed() || uiStartPressed()) sleep_ms(5);   // a press still held
+  while (true) {
+    if (uiSetPressed()) { uiWaitSetRelease(); return; }
+    if (uiStartPressed()) {
+      while (uiStartPressed()) sleep_ms(5);
+      sleep_ms(50);                            // release bounce
+      return;
+    }
+    sleep_ms(5);
+  }
+}
+
+// End of a finished menu 4 point: slow from the measured speed to V_PUSH_END at
+// A_RELEASE under the run's speed loop, with the push power floor, like a run's
+// push end. A bottle caught on the way stays seated, so menu 4 doubles as the
+// catch test. SET or a stall cuts it short; the caller then stops the car.
+static void easeDown(int dir, float vStart) {
+  SpeedLoop loop;
+  loop.reset();
+  float vRef = vStart;
+  uint64_t lastUs = to_us_since_boot(get_absolute_time());
+  const uint32_t t0     = (uint32_t)(lastUs / 1000);
+  const uint32_t maxMs  = (uint32_t)(1000.0f * vRef / A_RELEASE) + STALL_ABORT_MS;
+  float    progD  = dir * odoDistanceM();
+  uint32_t progMs = t0;
+  HeldButton setHeld;
+  while (vRef > V_PUSH_END) {
+    const uint64_t us = to_us_since_boot(get_absolute_time());
+    const float    dt = (float)(us - lastUs) * 1e-6f;
+    lastUs = us;
+    const uint32_t ms = (uint32_t)(us / 1000);
+    const float    x  = odoDistanceM();
+    odoSpeedTick(x);
+    const float d = dir * x;
+    if (d - progD >= PROGRESS_MIN_M) { progD = d; progMs = ms; }
+    if (setHeld.update(uiSetPressed(), ms) || ms - progMs > STALL_ABORT_MS || ms - t0 > maxMs)
+      return;
+    vRef = std::max(vRef - A_RELEASE * dt, V_PUSH_END);
+    const float pwm = std::max(loop.update(vRef, dir * odoSpeedMps(), dt), PUSH_PWM_FLOOR_PCT);
+    if (dir > 0) driveForward(pwm); else driveReverse(pwm);
+    sleep_ms(2);
+  }
+}
+
 void calPwmProbe() {
   static const char *dirs[] = {"1 Forward", "2 Reverse", "3 Back"};
   float pwm = 30.0f;
 
   printf("\n=== PWM -> speed calibration ===\n");
-  printf("Pick a direction, dial a duty %%, press START. Needs ~3.5 m of floor.\n");
-  printf("SET aborts a run in progress. Fit PWM = offset + slope*v through the points\n");
-  printf("and enter them as SPEED_FF_OFFSET_PCT / SPEED_FF_PCT_PER_MPS.\n\n");
+  printf("Pick a direction, dial a duty %%, press START: it goes %d s later. Needs\n", CAL_START_DELAY_S);
+  printf("~5 m of floor: 3 m, then it eases down like a run's push end, so a bottle\n");
+  printf("placed ~1.3 m ahead tests the catch. The result stays on the LCD until SET or START.\n");
+  printf("SET aborts a run in progress. Enter each {speed, PWM} point, on a charged\n");
+  printf("pack, in SPEED_FF_TABLE (config.h).\n\n");
 
   while (true) {
     const int choice = uiMenuSelect("PWM->speed", dirs, 3);
@@ -53,8 +103,21 @@ void calPwmProbe() {
     }
     if (backOut) continue;
 
+    // Countdown: time to step back from the car. SET backs out.
+    for (int left = CAL_START_DELAY_S; left > 0 && !backOut; left--) {
+      char l2[17];
+      snprintf(l2, sizeof l2, "go in %ds SET=bk", left);
+      uiShow(l1, l2);
+      for (int t = 0; t < 1000 && !backOut; t += 2) {
+        if (uiSetPressed()) { uiWaitSetRelease(); backOut = true; }
+        sleep_ms(2);
+      }
+    }
+    if (backOut) continue;
+
     steerCenter();              // wheels straight — this is a straight-line test
     odoZero();
+    odoSpeedReset();            // easeDown's speed loop needs the filter warm
 
     const uint32_t t0 = to_ms_since_boot(get_absolute_time());
     uint32_t tA = 0, tB = 0;    // window start/end timestamps
@@ -70,7 +133,9 @@ void calPwmProbe() {
     HeldButton setHeld;                      // a noise sample must not abort the point
     while (true) {
       const uint32_t now = to_ms_since_boot(get_absolute_time());
-      const float    d   = dir * odoDistanceM();     // distance in the run direction
+      const float    xRaw = odoDistanceM();
+      odoSpeedTick(xRaw);
+      const float    d   = dir * xRaw;               // distance in the run direction
       if (tA == 0 && d >= CAL_WARMUP_M) tA = now;                      // launch done
       if (tA != 0 && d >= CAL_WARMUP_M + CAL_MEASURE_M) { tB = now; break; }
       if (d - progD >= PROGRESS_MIN_M) { progD = d; progMs = now; }
@@ -83,11 +148,14 @@ void calPwmProbe() {
       sleep_ms(2);
     }
     aborted = (why != nullptr);
+    if (!aborted) easeDown(dir, CAL_MEASURE_M * 1000.0f / (float)(tB - tA));
 
-    // Wrong way usually means a flipped encoder sign or swapped motor leads, and then
-    // "against the measured motion" is the way the car is already going: hold only.
+    // A finished point stops on the hold alone: gentle, a few cm more floor. Aborts
+    // get the hard stop. Wrong way usually means a flipped encoder sign or swapped
+    // motor leads, and then "against the measured motion" is the way the car is
+    // already going: hold only.
     const bool wrongWay = why && why[0] == 'w';
-    driveBrakeToStop(wrongWay ? 0.0f : ABORT_BRAKE_PWM, ABORT_BRAKE_MAX_MS);
+    driveBrakeToStop(why && !wrongWay ? ABORT_BRAKE_PWM : 0.0f, ABORT_BRAKE_MAX_MS);
     sleep_ms(STOP_SETTLE_MS);
     driveCoast();
 
@@ -95,7 +163,7 @@ void calPwmProbe() {
       printf("[CAL] %s pwm=%3.0f%%  ABORTED: %s (travelled %.2f m)\n",
              dir > 0 ? "FWD" : "REV", pwm, why ? why : "?", odoDistanceM());
       uiShow("ABORTED", why ? why : "check path/PWM");
-      sleep_ms(2000);
+      holdResult();
       continue;
     }
 
@@ -105,9 +173,9 @@ void calPwmProbe() {
            dir > 0 ? "FWD" : "REV", pwm, v, CAL_MEASURE_M, dt);
     char l2[17];
     snprintf(l1, sizeof l1, "%s PWM %.0f%%", dir > 0 ? "FWD" : "REV", pwm);
-    snprintf(l2, sizeof l2, "%.3f m/s", v);
+    snprintf(l2, sizeof l2, "%.3f m/s SET=ok", v);
     uiShow(l1, l2);
-    sleep_ms(3000);
+    holdResult();
   }
 }
 
@@ -568,10 +636,11 @@ void calMenu() {
   static const char *items[] = {"1 Encoder read", "2 Motor test",
                                 "3 Servo jog", "4 PWM->speed",
                                 "5 Input test", "6 IMU heading",
-                                "7 Steer response", "8 Exit to run"};
+                                "7 Steer response", "8 Sim dry run",
+                                "9 Exit to run"};
   printf("\n=== BENCH CALIBRATION MENU ===\n");
   while (true) {
-    switch (uiMenuSelect("Bench menu", items, 8)) {
+    switch (uiMenuSelect("Bench menu", items, 9)) {
       case 0: calEncoderReadout(); break;
       case 1: calMotorTest();      break;
       case 2: calServoTest();      break;
@@ -579,6 +648,7 @@ void calMenu() {
       case 4: calInputTest();      break;
       case 5: calImuTest();        break;
       case 6: calSteerTest();      break;
+      case 7: smDryRun();          break;
       default:
         printf("[CAL] leaving calibration\n");
         return;                    // back to whoever called us

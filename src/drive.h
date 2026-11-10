@@ -9,6 +9,10 @@
 //==============================================================================
 #include <cstdint>
 
+// What the drive is doing right now, for the bench dry run's simulated roller
+// (odo_sim.h). Coast = bridges off; Hold = dynamic brake; Drive = PWM applied.
+enum class DriveMode : int { Coast, Hold, Drive };
+
 void driveInit();
 void driveForward(float pwmPercent);   // 0..100 forward
 void driveReverse(float pwmPercent);   // 0..100 reverse
@@ -26,3 +30,7 @@ void driveHold();
 // counter-pulse. pwmPercent = 0 gives a pure dynamic-brake stop. Blocks for at
 // most maxMs + one poll.
 void driveBrakeToStop(float pwmPercent, uint32_t maxMs);
+
+// The last command: its mode, and the signed duty (+ forward, - reverse; 0 unless
+// Drive). Safe from either core.
+void driveCommand(DriveMode &mode, float &pct);

@@ -7,16 +7,17 @@
 // centerline, Start = 0, Target = D. The MP starts over the Start dot (§4.d.vii).
 //
 //   xContact     = xBottle - R_BOTTLE - L_P        pusher face touches the bottle
-//   captureStart = xContact - CAPTURE_LEAD         slow down to V_CAPTURE here
+//   captureStart = xContact - CAPTURE_LEAD         slow down to the catch speed here
 //   pushStart    = xContact + SEAT_MARGIN          bottle seated; start pushing
-//   xF           = D + B + A_PAST + btlOfs - S_SLIDE - L_P
+//   xF           = D + B + margin + btlOfs - S_SLIDE - L_P
 //                                                  forward stop: bottle's near side
-//                                                  ends A_PAST past the Bottle Line
+//                                                  ends `margin` past the Bottle Line
 //   xFinal       = D + mpOfs                       reverse stop: MP on the Target
 //
 // The final stop depends only on NET encoder travel, so a forward overshoot moves
 // the bottle (1 pt/cm) but not the final MP (2 pt/cm).
 //==============================================================================
+#include "config.h"
 
 // What the operator enters after impound (plus the level preset).
 struct RunInputs {
@@ -26,6 +27,8 @@ struct RunInputs {
   float xBottle;  // bottle CENTRE from Start, m (2/3/4 by level)
   float mpOfs;    // run-2 correction to the final MP stop, m
   float btlOfs;   // run-2 correction to the forward (bottle) stop, m
+  float margin = A_PAST_M;   // bottle's near side past the Bottle Line, m ("BtlPast")
+  float aimDeg = AIM_TRIM_DEG;   // aim trim, deg, + = left ("Aim"); used by the pose, not the plan
 };
 
 // Measured car dimensions. Separate from config.h so tests can pass their own.
@@ -39,6 +42,7 @@ struct SegmentSpeeds {
   float vCruise;
   float vPush;
   float vRev;
+  float vCatch;   // through first contact: min(V_CAPTURE, vCruise, vPush)
 };
 
 struct RunPlan {
@@ -54,7 +58,7 @@ struct RunPlan {
 
   SegmentSpeeds v;
   float tMotion;           // estimated motion time incl. turnaround + T_BIAS_S
-  float delayS;            // start delay so that delay + tMotion = T
+  float delayS;            // start delay so that delay + tMotion = T, >= START_SETTLE_S
   bool  timeFits;          // false -> even max speeds can't finish inside T
 };
 
