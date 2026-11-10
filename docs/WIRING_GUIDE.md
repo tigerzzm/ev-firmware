@@ -137,7 +137,7 @@ check, along with the contrast pot). No conflict with the BNO085 at 0x4A.
 
 | Servo wire | Connect to | Note |
 |---|---|---|
-| Signal (usually orange/white) | Pico **GP5** (pin 7) | 50 Hz. Firmware clamps every pulse to 1200–1800 µs (`SERVO_MIN_US`/`SERVO_MAX_US`). |
+| Signal (usually orange/white) | Pico **GP5** (pin 7) | 50 Hz. Firmware clamps every pulse to 1260–1930 µs (`SERVO_MIN_US`/`SERVO_MAX_US` in `config.h`: the linkage's measured safe range, not symmetric about the 1679 µs centre). |
 | V+ (red) | **5 V** rail (buck) | **Not** a Pico pin — servos spike >1 A. |
 | GND (brown/black) | common | |
 
